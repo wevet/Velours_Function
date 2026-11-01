@@ -1,0 +1,444 @@
+// Copyright 2022 wevet works All Rights Reserved.
+
+
+#include "Animation/VAnimInstance.h"
+#include "Character/BasePawn.h"
+
+#include "AbilitySystemComponent.h"
+#include "AbilitySystemGlobals.h"
+#include "Kismet/KismetSystemLibrary.h"
+#include "Kismet/KismetMathLibrary.h"
+#include "KismetAnimationLibrary.h"
+#include "Components/CapsuleComponent.h"
+#include "Animation/AnimMontage.h"
+#include "Animation/AnimClassInterface.h"
+#include "Animation/AnimInstanceProxy.h"
+#include "Animation/AnimNode_LinkedAnimLayer.h"
+#include "Animation/BlendSpace.h"
+
+//#include "MoverComponent.h"
+#include "CharacterMoverComponent.h"
+#include "DefaultMovementSet/Settings/CommonLegacyMovementSettings.h"
+
+#include UE_INLINE_GENERATED_CPP_BY_NAME(VAnimInstance)
+
+DEFINE_LOG_CATEGORY(LogVAnimation)
+
+
+void FCharacterOverlayInfo::ChooseStanceMode(const bool bIsStanding)
+{
+	BasePose_N = bIsStanding ? 1.0f : 0.0f;
+	BasePose_CLF = bIsStanding ? 0.0f : 1.0f;
+}
+
+void FCharacterOverlayInfo::ModifyAnimCurveValue(const UAnimInstance* AnimInstance)
+{
+	Spine_Add = AnimInstance->GetCurveValue(FName(TEXT("Layering_Spine_Add")));
+	Head_Add = AnimInstance->GetCurveValue(FName(TEXT("Layering_Head_Add")));
+	Arm_L_Add = AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_L_Add")));
+	Arm_R_Add = AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_R_Add")));
+	Hand_L = AnimInstance->GetCurveValue(FName(TEXT("Layering_Hand_L")));
+	Hand_R = AnimInstance->GetCurveValue(FName(TEXT("Layering_Hand_R")));
+	Arm_L_LS = AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_L_LS")));
+	Arm_R_LS = AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_R_LS")));
+	Arm_L_MS = FMath::Clamp((1.0f - Arm_L_LS), 0.0f, 1.0f);
+	Arm_R_MS = FMath::Clamp((1.0f - Arm_R_LS), 0.0f, 1.0f);
+
+	auto Value_L = AnimInstance->GetCurveValue(FName(TEXT("Enable_HandIK_L")));
+	Enable_HandIK_L = FMath::Lerp(0.f, Value_L, AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_L"))));
+
+	auto Value_R = AnimInstance->GetCurveValue(FName(TEXT("Enable_HandIK_R")));
+	Enable_HandIK_R = FMath::Lerp(0.f, Value_R, AnimInstance->GetCurveValue(FName(TEXT("Layering_Arm_R"))));
+}
+
+void FCharacterOverlayInfo::ShowDebugLog()
+{
+	UE_LOG(LogVAnimation, Log,
+		TEXT("[%s]\n")
+		TEXT("=> Spine_Add : %.2f, Head_Add : %.2f\n")
+		TEXT("=> Arm_L_Add : %.2f, Arm_R_Add : %.2f\n")
+		TEXT("=> Hand_L : %.2f, Hand_R : %.2f\n")
+		TEXT("=> Arm_L_LS : %.2f, Arm_R_LS : %.2f\n")
+		TEXT("=> Arm_L_MS : %.2f, Arm_R_MS : %.2f"),
+		*FString(__FUNCTION__),
+		Spine_Add,
+		Head_Add,
+		Arm_L_Add,
+		Arm_R_Add,
+		Hand_L,
+		Hand_R,
+		Arm_L_LS,
+		Arm_R_LS,
+		Arm_L_MS,
+		Arm_R_MS);
+}
+
+
+UVAnimInstance::UVAnimInstance()
+{
+}
+
+void UVAnimInstance::NativeInitializeAnimation()
+{
+	Super::NativeInitializeAnimation();
+}
+
+void UVAnimInstance::NativeUninitializeAnimation()
+{
+	Super::NativeUninitializeAnimation();
+}
+
+void UVAnimInstance::NativeBeginPlay()
+{
+	Super::NativeBeginPlay();
+
+	APawn* Pawn = TryGetPawnOwner();
+	if (!IsValid(Pawn))
+	{
+		return;
+	}
+
+	BasePawn = Cast<ABasePawn>(Pawn);
+}
+
+void UVAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
+{
+	Super::NativeUpdateAnimation(DeltaSeconds);
+
+	TryGetCharacterMoverComponent();
+
+}
+
+void UVAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)
+{
+	Super::NativeThreadSafeUpdateAnimation(DeltaSeconds);
+
+
+	CharacterOverlayInfo.ModifyAnimCurveValue(this);
+
+	if (IsValid(CharacterMoverComponent))
+	{
+		const bool bIsCrouching = CharacterMoverComponent->IsCrouching();
+		CharacterOverlayInfo.ChooseStanceMode(!bIsCrouching);
+	}
+
+	if (bIsDebugLogOverlay)
+	{
+		CharacterOverlayInfo.ShowDebugLog();
+	}
+}
+
+void UVAnimInstance::TryGetCharacterMoverComponent()
+{
+	if (IsValid(CharacterMoverComponent))
+	{
+		return;
+	}
+
+	APawn* Pawn = TryGetPawnOwner();
+	if (!IsValid(Pawn))
+	{
+		return;
+	}
+
+
+	CharacterMoverComponent = Pawn->FindComponentByClass<UCharacterMoverComponent>();
+}
+
+
+FVector UVAnimInstance::GetPredictionStopLocation(const FVector& CurrentLocation) const
+{
+	if (!TargetActor.IsValid())
+	{
+		return CurrentLocation;
+	}
+
+	const UMoverComponent* MoverComponent = TargetActor->FindComponentByClass<UMoverComponent>();
+	if (MoverComponent == nullptr)
+	{
+		return CurrentLocation;
+	}
+
+	const UCommonLegacyMovementSettings* MovementSettings = MoverComponent->FindSharedSettings<UCommonLegacyMovementSettings>();
+	if (MovementSettings == nullptr)
+	{
+		return CurrentLocation;
+	}
+
+	const FVector UpDirection = MoverComponent->GetUpDirection().GetSafeNormal();
+	if (UpDirection.IsNearlyZero())
+	{
+		return CurrentLocation;
+	}
+
+	// 重力方向の速度を除外し、地面に沿った速度だけを使用
+	FVector PredictedVelocity = FVector::VectorPlaneProject(MoverComponent->GetVelocity(), UpDirection);
+	if (PredictedVelocity.SizeSquared() <= FMath::Square(1.0f))
+	{
+		return CurrentLocation;
+	}
+
+	const float BrakingDeceleration = FMath::Max(0.0f, MovementSettings->Deceleration);
+	const float BaseFriction = MovementSettings->bUseSeparateBrakingFriction ? MovementSettings->BrakingFriction : MovementSettings->GroundFriction;
+	const float BrakingFriction = FMath::Max(0.0f, BaseFriction * MovementSettings->BrakingFrictionFactor);
+
+	if (BrakingDeceleration <= KINDA_SMALL_NUMBER && BrakingFriction <= KINDA_SMALL_NUMBER)
+	{
+		return CurrentLocation;
+	}
+
+	FVector PredictedLocation = CurrentLocation;
+
+	// 描画フレームレートに依存させない固定ステップ
+	constexpr float SimulationDeltaTime = 1.0f / 60.0f;
+	constexpr float MaxPredictionTime = 5.0f;
+	constexpr float StopSpeed = 1.0f;
+	const int32 MaxSimulationSteps = FMath::CeilToInt(MaxPredictionTime / SimulationDeltaTime);
+
+	for (int32 Step = 0; Step < MaxSimulationSteps; ++Step)
+	{
+		const float CurrentSpeed = PredictedVelocity.Size();
+		if (CurrentSpeed <= StopSpeed)
+		{
+			break;
+		}
+
+		const FVector VelocityDirection = PredictedVelocity / CurrentSpeed;
+
+		// 摩擦は現在速度に比例し、Decelerationは一定値として加算
+		const float FrictionDeceleration = CurrentSpeed * BrakingFriction;
+		const float TotalDeceleration = FrictionDeceleration + BrakingDeceleration;
+		const float NewSpeed = FMath::Max(0.0f, CurrentSpeed - TotalDeceleration * SimulationDeltaTime);
+		const FVector NewVelocity = VelocityDirection * NewSpeed;
+
+		// フレーム先頭と末尾の平均速度で移動距離を積算
+		PredictedLocation += (PredictedVelocity + NewVelocity) * (0.5f * SimulationDeltaTime);
+		PredictedVelocity = NewVelocity;
+	}
+
+	return PredictedLocation;
+}
+
+
+#pragma region Utils
+const TArray<UAnimInstance*> UVAnimInstance::GetAllAnimInstances()
+{
+	TArray<UAnimInstance*> Instances;
+	Instances.Add(this);
+
+	if (const IAnimClassInterface* AnimBlueprintClass = IAnimClassInterface::GetFromClass(GetClass()))
+	{
+		const TArray<FStructProperty*>& LinkedAnimLayerNodeProperties = AnimBlueprintClass->GetLinkedAnimLayerNodeProperties();
+		for (const FStructProperty* LayerNodeProperty : LinkedAnimLayerNodeProperties)
+		{
+			const FAnimNode_LinkedAnimLayer* Layer = LayerNodeProperty->ContainerPtrToValuePtr<FAnimNode_LinkedAnimLayer>(this);
+			UAnimInstance* TargetInstance = Layer->GetTargetInstance<UAnimInstance>();
+			if (IsValid(TargetInstance))
+			{
+				Instances.AddUnique(TargetInstance);
+			}
+		}
+
+		const TArray<FStructProperty*>& LinkedAnimGraphNodeProperties = AnimBlueprintClass->GetLinkedAnimGraphNodeProperties();
+		for (const FStructProperty* LinkedAnimGraphNodeProperty : LinkedAnimGraphNodeProperties)
+		{
+			const FAnimNode_LinkedAnimGraph* LinkedAnimGraph = LinkedAnimGraphNodeProperty->ContainerPtrToValuePtr<FAnimNode_LinkedAnimGraph>(this);
+			UAnimInstance* TargetInstance = LinkedAnimGraph->GetTargetInstance<UAnimInstance>();
+			if (IsValid(TargetInstance))
+			{
+				Instances.AddUnique(TargetInstance);
+			}
+		}
+	}
+	return Instances;
+}
+
+const TMap<FName, FAnimGroupInstance>& UVAnimInstance::GetSyncGroupMapRead() const
+{
+	return GetProxyOnGameThread<FAnimInstanceProxy>().GetSyncGroupMapRead();
+}
+
+const TArray<FAnimTickRecord>& UVAnimInstance::GetUngroupedActivePlayersRead()
+{
+	return GetProxyOnGameThread<FAnimInstanceProxy>().GetUngroupedActivePlayersRead();
+}
+
+void UVAnimInstance::DrawRelevantAnimation()
+{
+	if (!bOwnerPlayerController)
+	{
+		return;
+	}
+
+	APawn* Pawn = TryGetPawnOwner();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	const UWorld* World = Pawn->GetWorld();
+
+	// check sync group
+	{
+		const TMap<FName, FAnimGroupInstance>& SyncGroupMap = GetSyncGroupMapRead();
+		const TArray<FAnimTickRecord>& UngroupedActivePlayers = GetUngroupedActivePlayersRead();
+
+		// Sync Groups and Sequences
+		const FString SynGroupsHeading = FString::Printf(TEXT("SyncGroups: %i"), SyncGroupMap.Num());
+		UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*SynGroupsHeading), true, false, FColor::Green, 0.0f);
+
+		for (const TTuple<FName, FAnimGroupInstance>& SyncGroupPair : SyncGroupMap)
+		{
+			const FAnimGroupInstance& SyncGroup = SyncGroupPair.Value;
+			const FString GroupLabel = FString::Printf(TEXT("Group %s - Players %i"), *SyncGroupPair.Key.ToString(), SyncGroup.ActivePlayers.Num());
+			UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*GroupLabel), true, false, FColor::Green, 0.0f);
+
+			if (SyncGroup.ActivePlayers.Num() > 0)
+			{
+				check(SyncGroup.GroupLeaderIndex != -1);
+				constexpr bool bFullBlendSpaceDisplay = true;
+				RenderAnimTickRecords(SyncGroup.ActivePlayers, SyncGroup.GroupLeaderIndex, FColor::White, FColor::Green, FColor::Black, bFullBlendSpaceDisplay);
+			}
+		}
+		const FString UngroupedHeading = FString::Printf(TEXT("Ungrouped: %i"), UngroupedActivePlayers.Num());
+		UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*UngroupedHeading), true, false, FColor::Green, 0.0f);
+
+		constexpr int HighlightIndex = -1;
+		constexpr bool bFullBlendSpaceDisplay = true;
+		RenderAnimTickRecords(UngroupedActivePlayers, HighlightIndex, FColor::White, FColor::Green, FColor::Black, bFullBlendSpaceDisplay);
+	}
+
+	// montage & anim notify entry
+	{
+		const TArray<UAnimInstance*> AnimInstances = GetAllAnimInstances();
+		for (UAnimInstance* AnimInstance : AnimInstances)
+		{
+			if (!IsValid(AnimInstance))
+			{
+				continue;
+			}
+
+			const FString ABPHeading = FString::Printf(TEXT("ABP Name: %s"), *AnimInstance->GetName());
+			UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*ABPHeading), true, false, FColor::Yellow, 0.0f);
+
+			const int32 MontageInstancesCount = AnimInstance->MontageInstances.Num();
+			const FString MontagesHeading = FString::Printf(TEXT("Montages: %i"), MontageInstancesCount);
+			UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*MontagesHeading), true, false, FColor::Blue, 0.0f);
+			for (FAnimMontageInstance* MontageInstance : AnimInstance->MontageInstances)
+			{
+				FColor ActiveColor = MontageInstance->IsActive() ? FColor::Green : FColor::Black;
+
+				if (MontageInstance && MontageInstance->Montage)
+				{
+					const FString MontageEntry = FString::Printf(TEXT("%s, CurrSec: %s, NextSec: %s, Weight: %.3f"),
+						*MontageInstance->Montage->GetName(),
+						*MontageInstance->GetCurrentSection().ToString(),
+						*MontageInstance->GetNextSection().ToString(),
+						MontageInstance->GetWeight());
+
+					UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*MontageEntry), true, false, ActiveColor, 0.0f);
+				}
+			}
+
+			const int32 ActiveNotifiesCount = ActiveAnimNotifyState.Num();
+			const FString AnimNotifyHeading = FString::Printf(TEXT("Active Notify States: %i"), ActiveNotifiesCount);
+			UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*AnimNotifyHeading), true, false, FColor::Blue, 0.0f);
+			for (const FAnimNotifyEvent& NotifyState : AnimInstance->ActiveAnimNotifyState)
+			{
+				const FString NotifyEntry = FString::Printf(TEXT("%s Dur:%.3f"), *NotifyState.NotifyName.ToString(), NotifyState.GetDuration());
+				UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*NotifyEntry), true, false, FColor::Green, 0.0f);
+			}
+		}
+
+	}
+
+}
+
+void UVAnimInstance::RenderAnimTickRecords(
+	const TArray<FAnimTickRecord>& Records,
+	const int32 HighlightIndex, 
+	FColor TextColor, 
+	FColor HighlightColor, 
+	FColor InInactiveColor, 
+	bool bFullBlendSpaceDisplay) const
+{
+
+	APawn* Pawn = TryGetPawnOwner();
+	if (!Pawn)
+	{
+		return;
+	}
+
+	const UWorld* World = Pawn->GetWorld();
+	for (int32 PlayerIndex = 0; PlayerIndex < Records.Num(); ++PlayerIndex)
+	{
+		const FAnimTickRecord& Player = Records[PlayerIndex];
+		FString PlayerEntry = FString::Printf(TEXT("%i) %s"), PlayerIndex, *Player.SourceAsset->GetName());
+
+		float Progress = -1.f;
+		// See if we have access to SequenceLength
+		if (UAnimSequenceBase* AnimSeqBase = Cast<UAnimSequenceBase>(Player.SourceAsset))
+		{
+			if (Player.TimeAccumulator != nullptr)
+			{
+				Progress = *Player.TimeAccumulator / AnimSeqBase->GetPlayLength();
+			}
+		}
+
+		if (Progress == -1.f)
+		{
+			PlayerEntry += FString::Printf(TEXT(" P(%.2f)"), Player.TimeAccumulator != nullptr ? *Player.TimeAccumulator : 0.f);
+		}
+		UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*PlayerEntry), true, false, HighlightColor, 0.0f);
+
+		if (Progress >= 0.f)
+		{
+			UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*FString::Printf(TEXT("%.3f"), Progress)), true, false, HighlightColor, 0.0f);
+		}
+
+		if (const UBlendSpace* BlendSpace = Cast<UBlendSpace>(Player.SourceAsset))
+		{
+			if (bFullBlendSpaceDisplay && Player.BlendSpace.BlendSampleDataCache && Player.BlendSpace.BlendSampleDataCache->Num() > 0)
+			{
+				TArray<FBlendSampleData> SampleData = *Player.BlendSpace.BlendSampleDataCache;
+				SampleData.Sort([](const FBlendSampleData& L, const FBlendSampleData& R) { return L.SampleDataIndex < R.SampleDataIndex; });
+
+				const FVector BlendSpacePosition(Player.BlendSpace.BlendSpacePositionX, Player.BlendSpace.BlendSpacePositionY, 0.f);
+				const FString BlendSpaceHeader = FString::Printf(TEXT("Blendspace Input (%s)"), *BlendSpacePosition.ToString());
+				UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*BlendSpaceHeader), true, false, HighlightColor, 0.0f);
+
+				const TArray<FBlendSample>& BlendSamples = BlendSpace->GetBlendSamples();
+
+				int32 WeightedSampleIndex = 0;
+
+				for (int32 SampleIndex = 0; SampleIndex < BlendSamples.Num(); ++SampleIndex)
+				{
+					const FBlendSample& BlendSample = BlendSamples[SampleIndex];
+
+					float Weight = 0.f;
+					for (; WeightedSampleIndex < SampleData.Num(); ++WeightedSampleIndex)
+					{
+						FBlendSampleData& WeightedSample = SampleData[WeightedSampleIndex];
+						if (WeightedSample.SampleDataIndex == SampleIndex)
+						{
+							Weight += WeightedSample.GetClampedWeight();
+						}
+						else if (WeightedSample.SampleDataIndex > SampleIndex)
+						{
+							break;
+						}
+					}
+
+					const FString SampleEntry = FString::Printf(TEXT("%s"), *BlendSample.Animation->GetName());
+
+					const FColor CurColor = (Weight > 0.f) ? HighlightColor : InInactiveColor;
+					UKismetSystemLibrary::PrintString(World, TCHAR_TO_ANSI(*SampleEntry), true, false, CurColor, 0.0f);
+				}
+			}
+		}
+
+	}
+}
+
+#pragma endregion
+

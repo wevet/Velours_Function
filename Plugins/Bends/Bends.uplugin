@@ -1,0 +1,29 @@
+{
+	"FileVersion": 3,
+	"Version": 1,
+	"VersionName": "1.0",
+	"FriendlyName": "Bends",
+	"Description": "Bends game system (shared by Pt1 and Pt2)",
+	"Category": "Gameplay",
+	"CreatedBy": "wevet works",
+	"CreatedByURL": "",
+	"DocsURL": "",
+	"MarketplaceURL": "",
+	"SupportURL": "",
+	"CanContainContent": true,
+	"IsBetaVersion": false,
+	"IsExperimentalVersion": false,
+	"Installed": true,
+	"Modules": [
+		{
+			"Name": "BendsCore",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		},
+		{
+			"Name": "BendsDialogue",
+			"Type": "Runtime",
+			"LoadingPhase": "Default"
+		}
+	]
+}
