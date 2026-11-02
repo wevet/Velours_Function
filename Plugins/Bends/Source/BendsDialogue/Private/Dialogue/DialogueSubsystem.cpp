@@ -207,17 +207,9 @@ void UDialogueSubsystem::EnterNode(UDialogueNode* Node, bool bRecordHistory /*= 
 	// 到達しうる次シーンを先読みしておく
 	PreloadReachableScenes(Node);
 
-	// 字幕。話者名は Participant 側から引く
-	FText DisplayName = FText::GetEmpty();
-	for (int32 Index = 0; Index < ParticipantComponents.Num(); ++Index)
-	{
-		if (ParticipantComponents[Index]->IsSpeakerFor(Node))
-		{
-			DisplayName = ParticipantComponents[Index]->GetDisplayName();
-			break;
-		}
-	}
-	OnLineStarted.Broadcast(Node, DisplayName);
+	// 字幕。話者名は対応表から引く（参加者がいない話者でも名前が出る）
+	const UDialogueSpeakerAsset* SpeakerData = FindSpeakerAsset(Node);
+	OnLineStarted.Broadcast(Node, SpeakerData ? SpeakerData->DisplayName : FText::GetEmpty());
 
 	// 再生。Shot / ボイス / 固定時間の三択
 	if (Node->bUseShot && !Node->Shot.IsNull())
@@ -237,16 +229,9 @@ void UDialogueSubsystem::EnterNode(UDialogueNode* Node, bool bRecordHistory /*= 
 		}
 	}
 
-	// 話者のコンポーネントを引く
-	UDialogueParticipantComponent* Speaker = nullptr;
-	for (int32 Index = 0; Index < ParticipantComponents.Num(); ++Index)
-	{
-		if (ParticipantComponents[Index]->IsSpeakerFor(Node))
-		{
-			Speaker = ParticipantComponents[Index];
-			break;
-		}
-	}
+
+	// 話者のコンポーネントを引く（いなければ2Dの声）
+	UDialogueParticipantComponent* Speaker = FindSpeakerComponent(Node);
 
 	float Duration = Node->FallbackDuration;
 
