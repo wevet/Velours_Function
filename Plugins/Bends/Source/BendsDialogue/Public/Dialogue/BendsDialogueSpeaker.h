@@ -4,6 +4,7 @@
 
 #include "CoreMinimal.h"
 #include "UObject/Interface.h"
+#include "GameplayTagContainer.h"
 #include "BendsDialogueSpeaker.generated.h"
 
 class USceneComponent;
@@ -25,7 +26,11 @@ class BENDSDIALOGUE_API IBendsDialogueSpeaker
 	GENERATED_BODY()
 
 public:
-	// 声を追従させるコンポーネント（通常は体のメッシュ）。nullptrなら既定を使う
+	// 話者を表すタグ（キャラクター名）。
+	// 会話のノードのSpeakerIdと、ドライバーの参加者の指定に使う。
+	// 無効なタグを返すと、SpeakerAssetのSpeakerIdを使う
+	virtual FGameplayTag GetDialogueSpeakerTag() const { return FGameplayTag(); }
+
 	virtual USceneComponent* GetDialogueVoiceComponent() const { return nullptr; }
 };
 

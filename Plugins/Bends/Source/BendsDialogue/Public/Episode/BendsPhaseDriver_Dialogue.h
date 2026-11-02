@@ -28,7 +28,7 @@ class UDialogueSubsystem;
  * 例:
  *   UBendsPhaseDriver_Dialogue* Briefing = AddPhase<UBendsPhaseDriver_Dialogue>(Phase_EP1_Briefing);
  *   Briefing->Scene = TSoftObjectPtr<UDialogueScene>(FSoftObjectPath(TEXT("/Game/Bends/EP1/Dialogue/DS_EP1_Briefing.DS_EP1_Briefing")));
- *   Briefing->ParticipantTags = { TEXT("Ash"), TEXT("Marlow") };
+ *   Briefing->Participants = { Character_Jo, Character_Ash, Character_Marlow };
  */
 UCLASS()
 class BENDSDIALOGUE_API UBendsPhaseDriver_Dialogue : public UBendsPhaseDriver
@@ -39,16 +39,19 @@ public:
 	TSoftObjectPtr<UDialogueScene> Scene;
 	TArray<FName> ParticipantTags;
 
+	TArray<FGameplayTag> Participants;
+
 protected:
 	virtual void OnBegin() override;
 	virtual void OnEnd() override;
 
 private:
-	// UDialogueSubsystemのデリゲートがダイナミックなので、受け口だけUFUNCTIONが必要
 	UFUNCTION()
 	void HandleDialogueFinished();
 
 	void Unbind();
+
+	void CollectParticipants(const UWorld* World, TArray<AActor*>& OutActors) const;
 
 	TWeakObjectPtr<UDialogueSubsystem> Subsystem;
 	bool bDialogueDone = false;

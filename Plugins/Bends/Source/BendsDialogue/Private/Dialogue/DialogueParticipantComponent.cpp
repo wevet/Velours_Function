@@ -4,33 +4,23 @@
 #include "BendsDialogue.h"
 
 #include "Dialogue/BendsDialogueSpeaker.h"
+#include "UObject/UObjectIterator.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DialogueParticipantComponent)
 
-// Sets default values for this component's properties
 UDialogueParticipantComponent::UDialogueParticipantComponent()
 {
 	PrimaryComponentTick.bCanEverTick = false;
-
 }
 
-
-// Called when the game starts
 void UDialogueParticipantComponent::BeginPlay()
 {
 	Super::BeginPlay();
-
-	// ...
-
 }
 
-
-// Called every frame
 void UDialogueParticipantComponent::TickComponent(float DeltaTime, ELevelTick TickType, FActorComponentTickFunction* ThisTickFunction)
 {
 	Super::TickComponent(DeltaTime, TickType, ThisTickFunction);
-
-	// ...
 }
 
 
@@ -46,8 +36,7 @@ void UDialogueParticipantComponent::OnDialogueBegin_Implementation(AActor* Other
 	PartnerActor = OtherParticipant;
 
 	// 会話モードへの遷移。相手を向く、武器を下ろす等は BP 側で。
-	UE_LOG(LogBendsDialogue, Log, TEXT("[%s] begin with %s"),
-		*GetNameSafe(GetOwner()), *GetNameSafe(OtherParticipant));
+	UE_LOG(LogBendsDialogue, Log, TEXT("[%s] begin with %s"), *GetNameSafe(GetOwner()), *GetNameSafe(OtherParticipant));
 }
 
 void UDialogueParticipantComponent::OnDialogueEnd_Implementation()
@@ -153,6 +142,14 @@ USceneComponent* UDialogueParticipantComponent::GetVoiceAttachComponent() const
 
 FGameplayTag UDialogueParticipantComponent::GetSpeakerId() const
 {
+	if (const IBendsDialogueSpeaker* Speaker = Cast<IBendsDialogueSpeaker>(GetOwner()))
+	{
+		const FGameplayTag Tag = Speaker->GetDialogueSpeakerTag();
+		if (Tag.IsValid())
+		{
+			return Tag;
+		}
+	}
 	return SpeakerAsset ? SpeakerAsset->SpeakerId : FGameplayTag::EmptyTag;
 }
 
@@ -160,4 +157,27 @@ FText UDialogueParticipantComponent::GetDisplayName() const
 {
 	return SpeakerAsset ? SpeakerAsset->DisplayName : FText::GetEmpty();
 }
+
+UDialogueParticipantComponent* UDialogueParticipantComponent::FindBySpeakerId(const UWorld* World, const FGameplayTag& SpeakerId)
+{
+	if (!World || !SpeakerId.IsValid())
+	{
+		return nullptr;
+	}
+
+	for (TObjectIterator<UDialogueParticipantComponent> It; It; ++It)
+	{
+		UDialogueParticipantComponent* Component = *It;
+		if (!IsValid(Component) || Component->GetWorld() != World || !Component->IsRegistered())
+		{
+			continue;
+		}
+		if (Component->GetSpeakerId().MatchesTagExact(SpeakerId))
+		{
+			return Component;
+		}
+	}
+	return nullptr;
+}
+
 

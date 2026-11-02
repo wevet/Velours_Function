@@ -35,6 +35,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dialogue")
 	FText GetDisplayName() const;
 
+
+	static UDialogueParticipantComponent* FindBySpeakerId(const UWorld* World, const FGameplayTag& SpeakerId);
+
 	// この会話に参加者として登録されたとき。会話全体で一度。
 	// 相手を向く、武器を下ろす、待機モーションを会話用に切り替える、など
 	// 「会話モードに入る」処理。

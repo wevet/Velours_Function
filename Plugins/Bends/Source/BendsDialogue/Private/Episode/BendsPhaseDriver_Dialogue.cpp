@@ -4,7 +4,9 @@
 #include "Episode/BendsPhaseDriver_Dialogue.h"
 #include "Dialogue/DialogueSubsystem.h"
 #include "Dialogue/DialogueSystemTypes.h"
+#include "Dialogue/DialogueParticipantComponent.h"
 #include "BendsDialogue.h"
+
 #include "Engine/World.h"
 #include "Kismet/GameplayStatics.h"
 
@@ -33,17 +35,12 @@ void UBendsPhaseDriver_Dialogue::OnBegin()
 		return;
 	}
 
-	TArray<AActor*> Participants;
-	for (const FName& Tag : ParticipantTags)
-	{
-		TArray<AActor*> Found;
-		UGameplayStatics::GetAllActorsWithTag(World, Tag, Found);
-		Participants.Append(Found);
-	}
+	TArray<AActor*> ParticipantActors;
+	CollectParticipants(World, ParticipantActors);
 
 	Subsystem = Dialogue;
 	Dialogue->OnDialogueFinished.AddUniqueDynamic(this, &UBendsPhaseDriver_Dialogue::HandleDialogueFinished);
-	Dialogue->StartDialogue(LoadedScene, Participants);
+	Dialogue->StartDialogue(LoadedScene, ParticipantActors);
 
 	// 開始を拒否された場合（シーンの不備など）は進める
 	if (!bDialogueDone && !Dialogue->IsInDialogue())
@@ -74,6 +71,22 @@ void UBendsPhaseDriver_Dialogue::HandleDialogueFinished()
 {
 	bDialogueDone = true;
 	Finish();
+}
+
+
+void UBendsPhaseDriver_Dialogue::CollectParticipants(const UWorld* World, TArray<AActor*>& OutActors) const
+{
+	for (const FGameplayTag& SpeakerId : Participants)
+	{
+		UDialogueParticipantComponent* Component = UDialogueParticipantComponent::FindBySpeakerId(World, SpeakerId);
+		AActor* Owner = Component ? Component->GetOwner() : nullptr;
+		if (!Owner)
+		{
+			UE_LOG(LogBendsDialogue, Warning, TEXT("Dialogue driver: participant %s not found."), *SpeakerId.ToString());
+			continue;
+		}
+		OutActors.AddUnique(Owner);
+	}
 }
 
 void UBendsPhaseDriver_Dialogue::Unbind()

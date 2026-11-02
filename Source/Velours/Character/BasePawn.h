@@ -174,6 +174,7 @@ public:
 
 	//~Start IBendsDialogueSpeaker 
 	virtual USceneComponent* GetDialogueVoiceComponent() const override;
+	virtual FGameplayTag GetDialogueSpeakerTag() const override;
 	//~End IBendsDialogueSpeaker
 
 	//~APawn interface

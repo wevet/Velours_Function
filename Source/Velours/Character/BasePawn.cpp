@@ -601,6 +601,12 @@ USceneComponent* ABasePawn::GetDialogueVoiceComponent() const
 	return GetWvSkeletalMeshComponent();
 }
 
+FGameplayTag ABasePawn::GetDialogueSpeakerTag() const
+{
+	return GetAvatarTag();
+}
+
+
 void ABasePawn::NotifyControllerChanged()
 {
 	const FGenericTeamId OldTeamId = GetGenericTeamId();
