@@ -2,6 +2,9 @@
 
 #include "Dialogue/DialogueSubsystem.h"
 #include "Dialogue/DialogueParticipantComponent.h"
+#include "Dialogue/BendsDialogueSettings.h"
+#include "Dialogue/DialogueSpeakerRoster.h"
+
 #include "UI/DialogueChoiceWidget.h"
 #include "BendsDialogue.h"
 #include "Streaming/SceneStreamingSubsystem.h"
@@ -631,4 +634,37 @@ void UDialogueSubsystem::BroadcastToParticipants(TFunctionRef<void(UDialoguePart
 	}
 }
 #pragma endregion
+
+
+UDialogueParticipantComponent* UDialogueSubsystem::FindSpeakerComponent(const UDialogueNode* Node) const
+{
+	for (UDialogueParticipantComponent* Component : ParticipantComponents)
+	{
+		if (Component && Component->IsSpeakerFor(Node))
+		{
+			return Component;
+		}
+	}
+	return nullptr;
+}
+
+const UDialogueSpeakerAsset* UDialogueSubsystem::FindSpeakerAsset(const UDialogueNode* Node) const
+{
+	if (!Node)
+	{
+		return nullptr;
+	}
+
+	// 参加者の上書き（SpeakerAsset）を優先する
+	if (const UDialogueParticipantComponent* Component = FindSpeakerComponent(Node))
+	{
+		if (const UDialogueSpeakerAsset* Asset = Component->GetSpeakerAsset())
+		{
+			return Asset;
+		}
+	}
+
+	const UDialogueSpeakerRoster* Roster = UBendsDialogueSettings::GetSpeakerRoster();
+	return Roster ? Roster->FindSpeaker(Node->SpeakerId) : nullptr;
+}
 

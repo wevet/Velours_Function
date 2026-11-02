@@ -68,4 +68,9 @@ UWvSkeletalMeshComponent* AVBaseHuman::GetWvSkeletalMeshComponent() const
 	return SkeletalMeshComponent;
 }
 
+FGameplayTag AVBaseHuman::GetDialogueSpeakerTag() const
+{
+	return HumanNameTag;
+}
+
 

@@ -222,9 +222,6 @@ class BENDSDIALOGUE_API UDialogueSpeakerAsset : public UDataAsset
 	GENERATED_BODY()
 
 public:
-	UPROPERTY(EditAnywhere)
-	FGameplayTag SpeakerId;
-
 	// 字幕に出す表示名
 	UPROPERTY(EditAnywhere)
 	FText DisplayName;

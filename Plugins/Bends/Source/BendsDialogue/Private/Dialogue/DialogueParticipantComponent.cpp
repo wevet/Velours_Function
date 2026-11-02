@@ -4,6 +4,9 @@
 #include "BendsDialogue.h"
 
 #include "Dialogue/BendsDialogueSpeaker.h"
+#include "Dialogue/BendsDialogueSettings.h"
+#include "Dialogue/DialogueSpeakerRoster.h"
+
 #include "UObject/UObjectIterator.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(DialogueParticipantComponent)
@@ -144,18 +147,25 @@ FGameplayTag UDialogueParticipantComponent::GetSpeakerId() const
 {
 	if (const IBendsDialogueSpeaker* Speaker = Cast<IBendsDialogueSpeaker>(GetOwner()))
 	{
-		const FGameplayTag Tag = Speaker->GetDialogueSpeakerTag();
-		if (Tag.IsValid())
-		{
-			return Tag;
-		}
+		return Speaker->GetDialogueSpeakerTag();
 	}
-	return SpeakerAsset ? SpeakerAsset->SpeakerId : FGameplayTag::EmptyTag;
+	return FGameplayTag::EmptyTag;
+}
+
+const UDialogueSpeakerAsset* UDialogueParticipantComponent::GetSpeakerAsset() const
+{
+	if (SpeakerAsset)
+	{
+		return SpeakerAsset;
+	}
+	const UDialogueSpeakerRoster* Roster = UBendsDialogueSettings::GetSpeakerRoster();
+	return Roster ? Roster->FindSpeaker(GetSpeakerId()) : nullptr;
 }
 
 FText UDialogueParticipantComponent::GetDisplayName() const
 {
-	return SpeakerAsset ? SpeakerAsset->DisplayName : FText::GetEmpty();
+	const UDialogueSpeakerAsset* Asset = GetSpeakerAsset();
+	return Asset ? Asset->DisplayName : FText::GetEmpty();
 }
 
 UDialogueParticipantComponent* UDialogueParticipantComponent::FindBySpeakerId(const UWorld* World, const FGameplayTag& SpeakerId)

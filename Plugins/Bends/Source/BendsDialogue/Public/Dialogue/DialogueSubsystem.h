@@ -13,6 +13,7 @@ class UDialogueChoiceWidget;
 class USceneStreamingSubsystem;
 class ULevelSequencePlayer;
 class ALevelSequenceActor;
+class UDialogueSpeakerAsset;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FDialogueLineDelegate, const UDialogueNode*, Node, FText, DisplayName);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FDialogueNodeDelegate, const UDialogueNode*, Node);
@@ -130,7 +131,14 @@ public:
 #pragma endregion
 
 
+	// ノードの話者の表示用データ。
+	// 参加者のうち話者に当たる者がいればそのデータ、いなければ対応表からNode->SpeakerIdで引く。
+	// 画面にアクターがいない話者（留守電、無線、電話、動画の声）にも使える
+	const UDialogueSpeakerAsset* FindSpeakerAsset(const UDialogueNode* Node) const;
+
 protected:
+	UDialogueParticipantComponent* FindSpeakerComponent(const UDialogueNode* Node) const;
+
 	void EnterNode(UDialogueNode* Node, bool bRecordHistory = true);
 	void OnNodePlaybackFinished();
 	void PresentChoices();

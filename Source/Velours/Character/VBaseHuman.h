@@ -35,6 +35,11 @@ public:
 public:
 	virtual class UWvSkeletalMeshComponent* GetWvSkeletalMeshComponent() const override;
 
+	//~Start IBendsDialogueSpeaker 
+	virtual FGameplayTag GetDialogueSpeakerTag() const override;
+	//~End IBendsDialogueSpeaker
+
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -48,4 +53,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UDialogueParticipantComponent> DialogueParticipantComponent;
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "VBaseHuman|Config", meta = (Categories = "Character.Name"))
+	FGameplayTag HumanNameTag;
 };
+
+

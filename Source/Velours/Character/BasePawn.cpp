@@ -603,7 +603,7 @@ USceneComponent* ABasePawn::GetDialogueVoiceComponent() const
 
 FGameplayTag ABasePawn::GetDialogueSpeakerTag() const
 {
-	return GetAvatarTag();
+	return FGameplayTag::EmptyTag;
 }
 
 

@@ -35,6 +35,8 @@ public:
 	UFUNCTION(BlueprintPure, Category = "Dialogue")
 	FText GetDisplayName() const;
 
+	const UDialogueSpeakerAsset* GetSpeakerAsset() const;
+
 
 	static UDialogueParticipantComponent* FindBySpeakerId(const UWorld* World, const FGameplayTag& SpeakerId);
 

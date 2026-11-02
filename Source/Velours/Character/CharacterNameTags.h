@@ -1,0 +1,38 @@
+// Copyright 2022 wevet works All Rights Reserved.
+
+#pragma once
+
+#include "NativeGameplayTags.h"
+
+/**
+* 登場人物の名前のタグ。Character.Name.<フルネーム>
+* AVBaseHuman::HumanNameTagに設定し、会話の話者（SpeakerId）にも同じタグを使う。
+* 照合は完全一致（MatchesTagExact）なので、Unknownとその子タグは別の話者として扱われる。
+*/
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_JoannaWren);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_PaulMarlow);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_LeonardAsh);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_DesmondClarke);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_GaryMercer);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_JanetMoss);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_DanielCheung);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_GarethRees);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_CraigHughes);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_EmmaMarlow);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_DarrenCoyle);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_Greyman);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_Mastermind);
+
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_Unknown);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_Unknown_Executor01);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Character_Name_Unknown_Executor02);
+
+
+

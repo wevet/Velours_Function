@@ -33,6 +33,7 @@ public class BendsDialogue : ModuleRules
 				"UMG",
 				"LevelSequence",
 				"BendsCore",
+				"DeveloperSettings",
 				// ... add other public dependencies that you statically link with here ...
 			}
 			);
