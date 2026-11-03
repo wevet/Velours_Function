@@ -7,6 +7,7 @@
 #include "Item/WeaponBaseActor.h"
 #include "Character/CharacterSystemTypes.h"
 #include "Ability/WvAbilityType.h"
+#include "Ability/HitReact/VHitReactTypes.h"
 #include "CombatSystemTypes.h"
 #include "Logging/LogMacros.h"
 #include "CombatComponent.generated.h"
@@ -15,6 +16,9 @@ class UWvAbilityBase;
 class UWvAbilitySystemComponent;
 class ABasePawn;
 class UWidgetComponent;
+class UChooserTable;
+class UAnimMontage;
+struct FGameplayEventData;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogCombat, All, All)
 
@@ -39,6 +43,12 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Combat|AI")
 	EAttackWeaponState AttackWeaponState = EAttackWeaponState::EmptyWeapon;
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|HitReact")
+	TObjectPtr<UChooserTable> HitReactChooser{ nullptr };
+
+	UPROPERTY(EditDefaultsOnly, Category = "Combat|HitReact")
+	FVHitReactBoneZones HitReactBoneZones;
 
 public:
 	void HandleAbilitySystemAvailable(UWvAbilitySystemComponent* InASC);
@@ -117,6 +127,11 @@ public:
 	bool CanFollow() const;
 
 	bool IsCloseCombatWeapon() const;
+
+	FVHitReactQuery BuildHitReactQuery(const FGameplayEventData& EventData);
+
+	UAnimMontage* ChooseHitReactMontage(const FVHitReactQuery& Query) const;
+
 
 #pragma region BattleCommand
 	UFUNCTION(BlueprintCallable, Category = "CombatComponent|BattleCommand")

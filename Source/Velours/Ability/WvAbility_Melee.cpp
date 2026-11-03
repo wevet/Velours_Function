@@ -21,17 +21,26 @@ UWvAbility_Melee::UWvAbility_Melee(const FObjectInitializer& ObjectInitializer) 
 	bRetriggerInstancedAbility = true;
 }
 
-bool UWvAbility_Melee::CanActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayTagContainer* SourceTags /*= nullptr*/, const FGameplayTagContainer* TargetTags /*= nullptr*/, OUT FGameplayTagContainer* OptionalRelevantTags /*= nullptr*/) const
+bool UWvAbility_Melee::CanActivateAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayTagContainer* SourceTags /*= nullptr*/,
+	const FGameplayTagContainer* TargetTags /*= nullptr*/,
+	OUT FGameplayTagContainer* OptionalRelevantTags /*= nullptr*/) const
 {
 	return Super::CanActivateAbility(Handle, ActorInfo, SourceTags, TargetTags, OptionalRelevantTags);
 }
 
-void UWvAbility_Melee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+void UWvAbility_Melee::ActivateAbility(
+	const FGameplayAbilitySpecHandle Handle, 
+	const FGameplayAbilityActorInfo* ActorInfo, 
+	const FGameplayAbilityActivationInfo ActivationInfo, 
+	const FGameplayEventData* TriggerEventData)
 {
 	ABasePawn* Character = GetBaseCharacter();
 	if (!Character)
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[%s : Character is null.]"), *FString(__FUNCTION__));
+		UE_LOG(LogWvGameplayAbility, Warning, TEXT("[%s : Character is null.]"), *FString(__FUNCTION__));
 		CancelAbility(Handle, ActorInfo, ActivationInfo, false);
 		return;
 	}
@@ -51,7 +60,7 @@ void UWvAbility_Melee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 
 		if (HasComboTrigger())
 		{
-			UE_LOG(LogTemp, Warning, TEXT("playing combo melee => %s, GAS => %s, [%s]"),
+			UE_LOG(LogWvGameplayAbility, Warning, TEXT("playing combo melee => %s, GAS => %s, [%s]"),
 				*GetComboTriggerTag().GetTagName().ToString(),
 				*GetNameSafe(this),
 				*FString(__FUNCTION__));
@@ -131,7 +140,12 @@ void UWvAbility_Melee::ActivateAbility(const FGameplayAbilitySpecHandle Handle, 
 	MontageTask->ReadyForActivation();
 }
 
-void UWvAbility_Melee::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+void UWvAbility_Melee::EndAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	bool bReplicateEndAbility, 
+	bool bWasCancelled)
 {
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

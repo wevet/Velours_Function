@@ -72,6 +72,8 @@ FName ABasePawn::MeshComponentName(TEXT("CharacterMesh0"));
 FName ABasePawn::MeshTagName(TEXT("MainMesh"));
 FName ABasePawn::CapsuleComponentName(TEXT("CollisionCylinder"));
 FName ABasePawn::ClimbSyncPoint = FName(TEXT("ClimbSyncPoint"));
+FName ABasePawn::NearlestTarget = FName(TEXT("NearlestTarget"));
+
 FName ABasePawn::BackwardInputSyncPoint = FName(TEXT("BackwardInputSyncPoint"));
 
 FName ABasePawn::CapsuleCollisionProfileName = FName(TEXT("CharacterCapsule"));
@@ -747,7 +749,7 @@ void ABasePawn::CalcurateNearlestTarget(const float SyncPointWeight)
 
 void ABasePawn::ResetNearlestTarget()
 {
-	MotionWarpingComponent->RemoveWarpTarget(NEARLEST_TARGET_SYNC_POINT);
+	MotionWarpingComponent->RemoveWarpTarget(NearlestTarget);
 }
 
 void ABasePawn::FindNearestTarget(AActor* Target, const float SyncPointWeight)
@@ -766,7 +768,7 @@ void ABasePawn::FindNearestTarget(const FVector TargetPosition, const float Sync
 
 	const FRotator Rotation = UKismetMathLibrary::RLerp(GetActorRotation(), TargetLookAt, Weight, true);
 	FMotionWarpingTarget WarpingTarget;
-	WarpingTarget.Name = NEARLEST_TARGET_SYNC_POINT;
+	WarpingTarget.Name = NearlestTarget;
 	WarpingTarget.Location = FMath::Lerp(From, To, Weight);
 	WarpingTarget.Rotation = FRotator(0.f, Rotation.Yaw, 0.f);
 	MotionWarpingComponent->AddOrUpdateWarpTarget(WarpingTarget);
@@ -851,7 +853,7 @@ AActor* ABasePawn::FindNearestTarget(const float Distance, const float AngleThre
 
 	// Get the target with the smallest angle difference from the camera forward vector
 	float ClosestDotToCenter = 0.f;
-	ABasePawn* NearlestTarget = nullptr;
+	ABasePawn* NearlestTargetPawn = nullptr;
 
 	for (int32 Index = 0; Index < HitTargets.Num(); ++Index)
 	{
@@ -868,11 +870,11 @@ AActor* ABasePawn::FindNearestTarget(const float Distance, const float AngleThre
 			if (Dot > ClosestDotToCenter)
 			{
 				ClosestDotToCenter = Dot;
-				NearlestTarget = Target;
+				NearlestTargetPawn = Target;
 			}
 		}
 	}
-	return NearlestTarget;
+	return NearlestTargetPawn;
 }
 
 

@@ -7,6 +7,7 @@
 #include "Misc/WvCommonUtils.h"
 #include "WvGameplayEffectContext.h"
 
+#include "NiagaraSystem.h"
 #include "Kismet/KismetMathLibrary.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(WvGameplayCue_HitImpact)
@@ -49,7 +50,12 @@ void UWvGameplayCue_HitImpact::HandleGameplayCue(AActor* MyTarget, EGameplayCueE
 	HandleBeHit(BeHitActor, AttackerActor, Parameters, OnceApplyEffect, HitResult);
 }
 
-void UWvGameplayCue_HitImpact::HandleAttack(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, FOnceApplyEffect& OnceApplyEffect, const FHitResult* HitResult)
+void UWvGameplayCue_HitImpact::HandleAttack(
+	ABasePawn* BeHitActor,
+	ABasePawn* Attacker, 
+	const FGameplayCueParameters& Parameters, 
+	FOnceApplyEffect& OnceApplyEffect, 
+	const FHitResult* HitResult)
 {
 	UApplyEffectExData* ExData = UWvAbilitySystemBlueprintFunctionLibrary::GetOnecEffectExData(OnceApplyEffect);
 	if (!ExData)
@@ -81,7 +87,14 @@ void UWvGameplayCue_HitImpact::HandleAttack(ABasePawn* BeHitActor, ABasePawn* At
 	{
 		if (ParticleConfig.IsAttachInBone)
 		{
-			//UWvCommonUtils::SpawnParticleAttached(ParticleConfig.NiagaraSystem, BeHitActor->GetMesh(), HitResult->BoneName, ParticlePosition, ParticleRotation, ParticleScale, EAttachLocation::KeepWorldPosition);;
+			//UWvCommonUtils::SpawnParticleAttached(
+			// ParticleConfig.NiagaraSystem, 
+			// BeHitActor->GetMesh(),
+			// HitResult->BoneName, 
+			// ParticlePosition, 
+			// ParticleRotation, 
+			// ParticleScale, 
+			// EAttachLocation::KeepWorldPosition);;
 		}
 		else
 		{
@@ -97,7 +110,12 @@ void UWvGameplayCue_HitImpact::HandleAttack(ABasePawn* BeHitActor, ABasePawn* At
 	}
 }
 
-void UWvGameplayCue_HitImpact::HandleBeHit(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, FOnceApplyEffect& OnceApplyEffect, const FHitResult* HitResult)
+void UWvGameplayCue_HitImpact::HandleBeHit(
+	ABasePawn* BeHitActor,
+	ABasePawn* Attacker, 
+	const FGameplayCueParameters& Parameters,
+	FOnceApplyEffect& OnceApplyEffect, 
+	const FHitResult* HitResult)
 {
 	UApplyEffectExData* ExData = UWvAbilitySystemBlueprintFunctionLibrary::GetOnecEffectExData(OnceApplyEffect);
 	if (!ExData)
@@ -144,7 +162,14 @@ void UWvGameplayCue_HitImpact::HandleBeHit(ABasePawn* BeHitActor, ABasePawn* Att
 			{
 				if (ParticleConfig.IsAttachInBone)
 				{
-					//UWvCommonUtils::SpawnParticleAttached(ParticleConfig.NiagaraSystem, BeHitActor->GetMesh(), HitResult->BoneName, ParticlePosition, ParticleRotation, ParticleScale, EAttachLocation::KeepWorldPosition);
+					//UWvCommonUtils::SpawnParticleAttached(
+					// ParticleConfig.NiagaraSystem,
+					// BeHitActor->GetMesh(), 
+					// HitResult->BoneName,
+					// ParticlePosition, 
+					// ParticleRotation, 
+					// ParticleScale, 
+					// EAttachLocation::KeepWorldPosition);
 				}
 				else
 				{
@@ -164,16 +189,22 @@ void UWvGameplayCue_HitImpact::HandleBeHit(ABasePawn* BeHitActor, ABasePawn* Att
 	//BeHitActor->OnHitBone(Attacker->GetMesh(), *HitResult, true);
 }
 
-void UWvGameplayCue_HitImpact::GetHitImpactParticleLocation(ABasePawn* BeHitActor, ABasePawn* Attacker, const FHitResult* HitResult, FName FixedAttachBoneName, FVector LocationOffset, FVector& OutLocation)
+void UWvGameplayCue_HitImpact::GetHitImpactParticleLocation(
+	ABasePawn* BeHitActor, 
+	ABasePawn* Attacker, 
+	const FHitResult* HitResult, 
+	FName FixedAttachBoneName, 
+	FVector LocationOffset, 
+	FVector& OutLocation)
 {
 	FVector* LocationPtr = nullptr;
 
 	if (!FixedAttachBoneName.IsNone())
 	{
-		FTransform boneTransfrom;
-		//if (UWvCommonUtils::GetBoneTransForm(Attacker->GetMesh(), FixedAttachBoneName, boneTransfrom))
+		FTransform BoneTransfrom;
+		//if (UWvCommonUtils::GetBoneTransForm(Attacker->GetMesh(), FixedAttachBoneName, BoneTransfrom))
 		//{
-		//	FVector Location = FVector(boneTransfrom.GetLocation());
+		//	FVector Location = FVector(BoneTransfrom.GetLocation());
 		//	LocationPtr = &Location;
 		//}
 	}
@@ -205,7 +236,15 @@ void UWvGameplayCue_HitImpact::GetHitImpactParticleLocation(ABasePawn* BeHitActo
 	OutLocation += LocationOffset;
 }
 
-void UWvGameplayCue_HitImpact::GetHitImpactParticleRotation(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, const FHitResult* HitResult, EParticleRotationMode RotationMode, bool isOnlyYaw, FRotator RotatorOffset, FRotator& OutRotation)
+void UWvGameplayCue_HitImpact::GetHitImpactParticleRotation(
+	ABasePawn* BeHitActor,
+	ABasePawn* Attacker, 
+	const FGameplayCueParameters& Parameters,
+	const FHitResult* HitResult,
+	EParticleRotationMode RotationMode, 
+	bool isOnlyYaw, 
+	FRotator RotatorOffset,
+	FRotator& OutRotation)
 {
 	FRotator RotationOffset = RotatorOffset;
 

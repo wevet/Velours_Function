@@ -5,16 +5,17 @@
 #include "CoreMinimal.h"
 #include "WvAbilityBase.h"
 #include "WvTargetDataFilter.h"
-//#include "Abilities/GameplayAbility.h"
-//#include "Abilities/GameplayAbilityTypes.h"
 #include "WvAbilityType.h"
 #include "GameplayEffectTypes.h"
+#include "Logging/LogMacros.h"
 #include "WvGameplayAbility.generated.h"
 
 class UWvAbilitySystemComponent;
 class ABasePawn;
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FWvAbilityEndDelegate, UWvGameplayAbility*, ability);
+
+DECLARE_LOG_CATEGORY_EXTERN(LogWvGameplayAbility, All, All)
 
 /**
  * 

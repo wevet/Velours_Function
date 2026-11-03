@@ -4,8 +4,9 @@
 
 #include "CoreMinimal.h"
 #include "WvAbilitySystemTypes.h"
-#include "NiagaraSystem.h"
 #include "WvAbilityType.generated.h"
+
+class UNiagaraSystem;
 
 
 USTRUCT(BlueprintType)

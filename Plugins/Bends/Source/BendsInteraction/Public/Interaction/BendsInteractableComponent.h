@@ -52,7 +52,6 @@ public:
 	bool IsUsed() const { return bUsed; }
 
 	FVector GetPromptLocation() const { return GetComponentLocation() + PromptOffset; }
-	const TSoftObjectPtr<UAnimMontage>& GetMontage(EBendsViewMode ViewMode) const;
 
 	FBendsInteractedEvent& OnInteracted() { return InteractedEvent; }
 
@@ -96,15 +95,17 @@ public:
 #pragma endregion
 
 #pragma region Animation
-	// アビリティを起動するGameplay Eventのタグ（例: Ability.Interact.Pickup）。空なら即座に結果を出す
+	// アビリティを起動するGameplay Eventのタグ（例: Ability.Interact）。空なら即座に結果を出す
 	UPROPERTY(EditAnywhere, Category = "Animation")
 	FGameplayTag AbilityEventTag;
 
-	UPROPERTY(EditAnywhere, Category = "Animation")
-	TSoftObjectPtr<UAnimMontage> FirstPersonMontage;
+	// どういう動作か（例: Bends.Interaction.Anim.Pickup）。アビリティがChooserでMontageを選ぶのに使う
+	UPROPERTY(EditAnywhere, Category = "Animation", meta = (Categories = "Bends.Interaction.Anim"))
+	FGameplayTag AnimationTag;
 
+	// この物だけの特別な動作（薬莢の0.5秒の溜めなど）。設定するとChooserより優先する
 	UPROPERTY(EditAnywhere, Category = "Animation")
-	TSoftObjectPtr<UAnimMontage> ThirdPersonMontage;
+	TSoftObjectPtr<UAnimMontage> MontageOverride;
 
 	// Motion Warpingの目標の名前。位置はこのコンポーネント
 	UPROPERTY(EditAnywhere, Category = "Animation")

@@ -17,12 +17,16 @@ UWvAbility_BasicAction::UWvAbility_BasicAction(const FObjectInitializer& ObjectI
 
 
 
-void UWvAbility_BasicAction::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+void UWvAbility_BasicAction::ActivateAbility(
+	const FGameplayAbilitySpecHandle Handle, 
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo, 
+	const FGameplayEventData* TriggerEventData)
 {
 	Character = GetBaseCharacter();
 	if (!Character.IsValid())
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[%s : Character is null.]"), *FString(__FUNCTION__));
+		UE_LOG(LogWvGameplayAbility, Warning, TEXT("[%s : Character is null.]"), *FString(__FUNCTION__));
 		CancelAbility(Handle, ActorInfo, ActivationInfo, false);
 		return;
 	}
@@ -32,7 +36,7 @@ void UWvAbility_BasicAction::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 
 	if (!IsValid(BasicActionMontage))
 	{
-		UE_LOG(LogTemp, Warning, TEXT("[%s : BasicActionMontage is null.]"), *FString(__FUNCTION__));
+		UE_LOG(LogWvGameplayAbility, Warning, TEXT("[%s : BasicActionMontage is null.]"), *FString(__FUNCTION__));
 		CancelAbility(Handle, ActorInfo, ActivationInfo, false);
 		return;
 	}
@@ -65,7 +69,12 @@ void UWvAbility_BasicAction::ActivateAbility(const FGameplayAbilitySpecHandle Ha
 }
 
 
-void UWvAbility_BasicAction::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+void UWvAbility_BasicAction::EndAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo, 
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	bool bReplicateEndAbility, 
+	bool bWasCancelled)
 {
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 }

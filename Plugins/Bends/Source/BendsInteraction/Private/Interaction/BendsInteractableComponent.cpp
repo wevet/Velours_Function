@@ -110,10 +110,6 @@ void UBendsInteractableComponent::Interact(const FBendsInteractionContext& Conte
 	InteractedEvent.Broadcast(this, Context);
 }
 
-const TSoftObjectPtr<UAnimMontage>& UBendsInteractableComponent::GetMontage(EBendsViewMode ViewMode) const
-{
-	return ViewMode == EBendsViewMode::ThirdPerson ? ThirdPersonMontage : FirstPersonMontage;
-}
 
 void UBendsInteractableComponent::MarkUsed()
 {

@@ -148,6 +148,15 @@ UE_DEFINE_GAMEPLAY_TAG(TAG_Reputation_Wanted, "Reputation.Wanted");
 
 #pragma endregion
 
+
+UE_DEFINE_GAMEPLAY_TAG(TAG_Ability_Interact, "Ability.Interact");
+
+UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Pickup, "Bends.Interaction.Anim.Pickup");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Inspect, "Bends.Interaction.Anim.Inspect");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_CheckPulse, "Bends.Interaction.Anim.CheckPulse");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Door, "Bends.Interaction.Anim.Door");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Phone, "Bends.Interaction.Anim.Phone");
+
 #define LOCTEXT_NAMESPACE ""
 
 void FVeloursModule::StartupModule()

@@ -5,6 +5,7 @@
 #include "WeaknessComponent.h"
 #include "HitTargetComponent.h"
 #include "LocomotionComponent.h"
+#include "WvSkeletalMeshComponent.h"
 
 #include "Misc/WvCommonUtils.h"
 #include "Velours.h"
@@ -29,6 +30,11 @@
 // sence
 #include "Perception/AISense_Hearing.h"
 #include "Perception/AISense_Damage.h"
+
+#include "Abilities/GameplayAbilityTypes.h"
+#include "Animation/AnimMontage.h"
+#include "Chooser.h"
+#include "ChooserFunctionLibrary.h"
 
 #define K_CHAIN_COMPONENT_TAG FName(TEXT("Chain"))
 
@@ -835,6 +841,92 @@ void UCombatComponent::WeaknessHitReactEventCallback(const AActor* AttackActor, 
 
 }
 
+
+FVHitReactQuery UCombatComponent::BuildHitReactQuery(const FGameplayEventData& EventData)
+{
+	FVHitReactQuery Query;
+	if (!Character.IsValid())
+	{
+		return Query;
+	}
+	ABasePawn* Victim = Character.Get();
+
+	// Feature（弱点を優先する。従来どおり、読んだら弱点は消す）
+	Query.Feature = WeaknessHitReactFeature.IsValid() ? WeaknessHitReactFeature : HitReactFeature;
+	SetWeaknessHitReactFeature(FGameplayTag::EmptyTag);
+
+	// 攻撃側の武器
+	if (const AActor* Attacker = EventData.Instigator.Get())
+	{
+		if (const UInventoryComponent* Inventory = Attacker->FindComponentByClass<UInventoryComponent>())
+		{
+			Query.AttackerWeapon = Inventory->GetEquipWeaponType();
+		}
+	}
+
+	// 攻撃の種類。ターゲットデータを優先し、なければ攻撃側の武器から
+	FWvGameplayAbilityTargetData TargetData;
+	const bool bHasTargetData = UWvAbilitySystemBlueprintFunctionLibrary::GetGameplayAbilityTargetData(EventData.ContextHandle, TargetData);
+	if (!bHasTargetData || !VHitReact::TryGetHitSource(TargetData.SourceInfo.SourceType, Query.Source))
+	{
+		Query.Source = VHitReact::ToHitSource(Query.AttackerWeapon);
+	}
+
+	// 被弾した側の武器
+	if (const UInventoryComponent* Inventory = Victim->GetInventoryComponent())
+	{
+		Query.VictimWeapon = Inventory->GetEquipWeaponType();
+	}
+
+	// 方向
+	const FVector AttackDirection = UWvAbilitySystemBlueprintFunctionLibrary::GetAttackDirection(EventData.ContextHandle, Victim->GetActorLocation());
+	const float Angle = UWvCommonUtils::GetAngleBetween3DVector(Victim->GetActorForwardVector(), AttackDirection, Victim->GetActorUpVector());
+	Query.Direction = UWvAbilitySystemBlueprintFunctionLibrary::EvaluteHitReactDirection(Angle);
+
+	// 上中下。銃弾は当たった骨を優先し、分からなければ方向から
+	bool bResolved = false;
+	if (Query.Source == EVHitSource::Bullet)
+	{
+		if (const FHitResult* Hit = EventData.ContextHandle.GetHitResult())
+		{
+			const USkeletalMeshComponent* HitMesh = Cast<USkeletalMeshComponent>(Hit->GetComponent());
+			if (!HitMesh)
+			{
+				HitMesh = Victim->GetWvSkeletalMeshComponent();
+			}
+			bResolved = VHitReact::TryGetVerticalFromBone(HitMesh, Hit->BoneName, HitReactBoneZones, Query.Vertical);
+		}
+	}
+	if (!bResolved)
+	{
+		Query.Vertical = UWvAbilitySystemBlueprintFunctionLibrary::EvaluteHitVerticalDirection(AttackDirection);
+	}
+
+	// しゃがみ
+	if (ULocomotionComponent* Locomotion = Victim->GetLocomotionComponent())
+	{
+		Query.bIsCrouched = Locomotion->GetLocomotionEssencialVariables().LSStance == ELSStance::Crouching;
+	}
+
+	return Query;
+}
+
+UAnimMontage* UCombatComponent::ChooseHitReactMontage(const FVHitReactQuery& Query) const
+{
+	if (!HitReactChooser)
+	{
+		UE_LOG(LogCombat, Warning, TEXT("[%s] HitReactChooser is not set on %s."), *FString(__FUNCTION__), *GetNameSafe(GetOwner()));
+		return nullptr;
+	}
+
+	FVHitReactQuery ContextQuery = Query; // AddStructParamは参照を取るのでコピーを渡す
+	FChooserEvaluationContext Context;
+	Context.AddStructParam(ContextQuery);
+
+	FInstancedStruct ChooserStruct = UChooserFunctionLibrary::MakeEvaluateChooser(HitReactChooser);
+	UObject* Result = UChooserFunctionLibrary::EvaluateObjectChooserBase(Context, ChooserStruct, UAnimMontage::StaticClass(), false);
+	return Cast<UAnimMontage>(Result);
+}
 
 #pragma endregion
 

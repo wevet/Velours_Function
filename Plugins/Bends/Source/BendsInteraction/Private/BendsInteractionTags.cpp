@@ -15,5 +15,7 @@ namespace BendsInteractionTags
 	UE_DEFINE_GAMEPLAY_TAG(Block_Dialogue, "Bends.Interaction.Block.Dialogue");
 	UE_DEFINE_GAMEPLAY_TAG(Block_Cutscene, "Bends.Interaction.Block.Cutscene");
 	UE_DEFINE_GAMEPLAY_TAG(Block_HandsFull, "Bends.Interaction.Block.HandsFull");
+
+	UE_DEFINE_GAMEPLAY_TAG(Anim, "Bends.Interaction.Anim");
 }
 

@@ -237,6 +237,8 @@ public:
 	static FName CapsuleCollisionProfileName;
 	static FName MeshCollisionProfileName;
 
+	static FName NearlestTarget;
+
 public:
 #pragma region Components
 	virtual class UWvSkeletalMeshComponent* GetWvSkeletalMeshComponent() const;

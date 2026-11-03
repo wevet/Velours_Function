@@ -11,13 +11,19 @@
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(WvGameplayAbility)
 
+DEFINE_LOG_CATEGORY(LogWvGameplayAbility)
+
 UWvGameplayAbility::UWvGameplayAbility(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
 	ASC = nullptr;
 	InstancingPolicy = EGameplayAbilityInstancingPolicy::InstancedPerActor;
 }
 
-void UWvGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, const FGameplayEventData* TriggerEventData)
+void UWvGameplayAbility::ActivateAbility(
+	const FGameplayAbilitySpecHandle Handle, 
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	const FGameplayEventData* TriggerEventData)
 {
 	if (ABasePawn* BaseCharacter = GetBaseCharacter())
 	{
@@ -28,7 +34,12 @@ void UWvGameplayAbility::ActivateAbility(const FGameplayAbilitySpecHandle Handle
 	Super::ActivateAbility(Handle, ActorInfo, ActivationInfo, TriggerEventData);
 }
 
-void UWvGameplayAbility::EndAbility(const FGameplayAbilitySpecHandle Handle, const FGameplayAbilityActorInfo* ActorInfo, const FGameplayAbilityActivationInfo ActivationInfo, bool bReplicateEndAbility, bool bWasCancelled)
+void UWvGameplayAbility::EndAbility(
+	const FGameplayAbilitySpecHandle Handle,
+	const FGameplayAbilityActorInfo* ActorInfo,
+	const FGameplayAbilityActivationInfo ActivationInfo,
+	bool bReplicateEndAbility,
+	bool bWasCancelled)
 {
 	Super::EndAbility(Handle, ActorInfo, ActivationInfo, bReplicateEndAbility, bWasCancelled);
 	OnEndDelegate.Broadcast(this);
@@ -102,7 +113,11 @@ void UWvGameplayAbility::CommitTargetDataHandle(FGameplayAbilityTargetDataHandle
 	AbilitySystemComponent->MakeEffectToTargetData(EffectContextHandle, TDH, Query);
 }
 
-bool UWvGameplayAbility::DoesAbilitySatisfyTagRequirements(const UAbilitySystemComponent& AbilitySystemComponent, const FGameplayTagContainer* SourceTags, const FGameplayTagContainer* TargetTags, OUT FGameplayTagContainer* OptionalRelevantTags) const
+bool UWvGameplayAbility::DoesAbilitySatisfyTagRequirements(
+	const UAbilitySystemComponent& AbilitySystemComponent,
+	const FGameplayTagContainer* SourceTags,
+	const FGameplayTagContainer* TargetTags,
+	OUT FGameplayTagContainer* OptionalRelevantTags) const
 {
 	bool bBlocked = false;
 	bool bMissing = false;

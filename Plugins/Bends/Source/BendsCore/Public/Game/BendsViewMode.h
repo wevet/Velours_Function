@@ -7,7 +7,7 @@
 #include "UObject/Interface.h"
 #include "BendsViewMode.generated.h"
 
-UENUM()
+UENUM(BlueprintType)
 enum class EBendsViewMode : uint8
 {
 	FirstPerson,

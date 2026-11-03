@@ -5,9 +5,12 @@
 #include "CoreMinimal.h"
 #include "Ability/WvGameplayAbility.h"
 #include "Task/WvAT_PlayMontageAndWaitForEvent.h"
+#include "Game/BendsViewMode.h"
 #include "VAbility_Interact.generated.h"
 
 class UBendsInteractableComponent;
+class UChooserTable;
+class UAnimMontage;
 
 /**
  * インタラクトのMontageを再生するアビリティ。
@@ -32,11 +35,11 @@ protected:
 		const FGameplayAbilityActivationInfo ActivationInfo, 
 		const FGameplayEventData* TriggerEventData) override;
 
-	// 起動するイベントのタグ（ex: Ability.Interact.Pickup）
 	UPROPERTY(EditDefaultsOnly, Category = "Interact")
-	FGameplayTag TriggerEventTag;
+	TObjectPtr<UChooserTable> MontageChooser;
 
 private:
+	UAnimMontage* ChooseMontage(const UBendsInteractableComponent& Target, EBendsViewMode ViewMode) const;
 	void FinishWith(const FGameplayTag& EventTag, bool bWasCancelled);
 
 	UFUNCTION()

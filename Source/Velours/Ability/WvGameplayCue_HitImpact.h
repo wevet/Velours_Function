@@ -33,8 +33,35 @@ public:
 
 
 private:
-	void HandleAttack(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, FOnceApplyEffect& OnceApplyEffect, const FHitResult* HitResult);
-	void HandleBeHit(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, FOnceApplyEffect& OnceApplyEffect, const FHitResult* HitResult);
-	void GetHitImpactParticleLocation(ABasePawn* BeHitActor, ABasePawn* Attacker, const FHitResult* HitResult, FName FixedAttachBoneName, FVector LocationOffset, FVector& OutLocation);
-	void GetHitImpactParticleRotation(ABasePawn* BeHitActor, ABasePawn* Attacker, const FGameplayCueParameters& Parameters, const FHitResult* HitResult, EParticleRotationMode RotationMode, bool isOnlyYaw, FRotator RotatorOffset, FRotator& OutRotation);
+	void HandleAttack(
+		ABasePawn* BeHitActor,
+		ABasePawn* Attacker,
+		const FGameplayCueParameters& Parameters, 
+		FOnceApplyEffect& OnceApplyEffect,
+		const FHitResult* HitResult);
+
+	void HandleBeHit(
+		ABasePawn* BeHitActor,
+		ABasePawn* Attacker,
+		const FGameplayCueParameters& Parameters,
+		FOnceApplyEffect& OnceApplyEffect,
+		const FHitResult* HitResult);
+
+	void GetHitImpactParticleLocation(
+		ABasePawn* BeHitActor, 
+		ABasePawn* Attacker, 
+		const FHitResult* HitResult,
+		FName FixedAttachBoneName, 
+		FVector LocationOffset,
+		FVector& OutLocation);
+
+	void GetHitImpactParticleRotation(
+		ABasePawn* BeHitActor, 
+		ABasePawn* Attacker, 
+		const FGameplayCueParameters& Parameters,
+		const FHitResult* HitResult,
+		EParticleRotationMode RotationMode,
+		bool isOnlyYaw, 
+		FRotator RotatorOffset, 
+		FRotator& OutRotation);
 };

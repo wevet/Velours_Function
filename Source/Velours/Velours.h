@@ -156,28 +156,15 @@ VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Reputation_Wanted);
 #pragma endregion
 
 
-/*
-* AIPerception Sight CancelEvent Interval
-*/
-#define SIGHT_AGE 20.0f
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Ability_Interact);
 
-/*
-* AIPerception Hear CancelEvent Interval
-*/
-#define HEAR_AGE 30.0f
-
-/*
-* AIPerception Follow CancelEvent Interval
-*/
-#define FOLLOW_AGE -1.0
-
-/*
-* AIPerception Friend CancelEvent Interval
-*/
-#define FRIEND_AGE 30.0
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Interaction_Anim_Pickup);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Interaction_Anim_Inspect);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Interaction_Anim_CheckPulse);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Interaction_Anim_Door);
+VELOURS_API UE_DECLARE_GAMEPLAY_TAG_EXTERN(TAG_Interaction_Anim_Phone);
 
 
-#define NEARLEST_TARGET_SYNC_POINT FName(TEXT("NearlestTarget"))
 #define TAKEDOWN_TARGET_SYNC_POINT FName(TEXT("TakeDownTarget"))
 
 /*
