@@ -27,10 +27,6 @@
 #include "AbilitySystemBlueprintLibrary.h"
 #include "Components/WidgetComponent.h"
 
-// sence
-#include "Perception/AISense_Hearing.h"
-#include "Perception/AISense_Damage.h"
-
 #include "Abilities/GameplayAbilityTypes.h"
 #include "Animation/AnimMontage.h"
 #include "Chooser.h"
@@ -749,9 +745,9 @@ void UCombatComponent::StartHitReact(FGameplayEffectContextHandle& Context, cons
 		ASC->HandleGameplayEvent(TAG_Common_PassiveAbilityTrigger_HitReact, &GameplayEventData);
 
 		// Send AIPerceptionComponent
-		auto HitResult = Context.GetHitResult();
-		const FVector EventLocation = Character->GetActorLocation();
-		UAISense_Damage::ReportDamageEvent(GetWorld(), Character.Get(), Attacker, Damage, EventLocation, HitResult->ImpactPoint);
+		//auto HitResult = Context.GetHitResult();
+		//const FVector EventLocation = Character->GetActorLocation();
+		//UAISense_Damage::ReportDamageEvent(GetWorld(), Character.Get(), Attacker, Damage, EventLocation, HitResult->ImpactPoint);
 	}
 
 	FName* WeaknessName = nullptr;
