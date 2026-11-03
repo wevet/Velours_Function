@@ -728,13 +728,14 @@ void UCombatComponent::StartHitReact(FGameplayEffectContextHandle& Context, cons
 		//	FActiveGameplayEffectHandle DeadGEHandle = ASC->ApplyGameplayEffectToSelf(DeadGE, 1.0f, ASC->MakeEffectContext());
 		//	ASC->SetDeadStateEffectHandle(DeadGEHandle);
 		//}
+		
 		// UWvAbility_Death Applied
-		//FGameplayEventData GameplayEventData;
-		//GameplayEventData.ContextHandle = Context;
-		//GameplayEventData.Instigator = Attacker;
-		//GameplayEventData.Target = Character.Get();
-		//GameplayEventData.EventMagnitude = Damage;
-		//ASC->HandleGameplayEvent(TAG_Common_PassiveAbilityTrigger_KillReact, &GameplayEventData);
+		FGameplayEventData GameplayEventData;
+		GameplayEventData.ContextHandle = Context;
+		GameplayEventData.Instigator = Attacker;
+		GameplayEventData.Target = Character.Get();
+		GameplayEventData.EventMagnitude = Damage;
+		ASC->HandleGameplayEvent(TAG_Common_PassiveAbilityTrigger_KillReact, &GameplayEventData);
 	}
 	else
 	{

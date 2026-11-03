@@ -64,7 +64,7 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 	GameplayCameraComponent->bRunInEditor = false;
 
 	BendsInteractorComponent = CreateDefaultSubobject<UBendsInteractorComponent>(TEXT("InteractorComponent"));
-	BendsInteractorComponent->bAutoActivate = 0;
+	BendsInteractorComponent->bAutoActivate = 1;
 
 #if WITH_EDITORONLY_DATA
 	// https://forums.unrealengine.com/t/world-partion-current-pawn-vanishes-when-reaching-cell-loading-range-limit/255655/7
