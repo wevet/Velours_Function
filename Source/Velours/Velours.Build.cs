@@ -70,7 +70,8 @@ public class Velours : ModuleRules
 				"WvAbilitySystem",
 				"QuadrupedIK",
 				"BendsCore",
-				"BendsDialogue"
+				"BendsDialogue",
+				"BendsInteraction"
 			}
 		);
 

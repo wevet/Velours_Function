@@ -6,6 +6,7 @@
 #include "Character/VBaseHuman.h"
 #include "InputActionValue.h"
 #include "MoverSimulationTypes.h"
+#include "Game/BendsViewMode.h"
 #include "PlayerCharacter.generated.h"
 
 class UWvSpringArmComponent;
@@ -13,12 +14,16 @@ class UQTEActionComponent;
 class AWvPlayerController;
 class UPostProcessComponent;
 class UGameplayCameraComponent;
+class UBendsInteractorComponent;
 
 /**
  * 
  */
 UCLASS()
-class VELOURS_API APlayerCharacter : public AVBaseHuman, public IWvKeyableTargetInterface, public IMoverInputProducerInterface
+class VELOURS_API APlayerCharacter : public AVBaseHuman,
+	public IWvKeyableTargetInterface,
+	public IMoverInputProducerInterface,
+	public IBendsViewModeProvider
 {
 	GENERATED_BODY()
 	
@@ -38,6 +43,13 @@ public:
 
 	// mover override
 	virtual void ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult) override;
+
+	virtual EBendsViewMode GetViewMode() const override
+	{
+		return IsFPSControlMode() ? EBendsViewMode::FirstPerson : EBendsViewMode::ThirdPerson;
+	}
+
+	FORCEINLINE UBendsInteractorComponent* GetInteractorComponent() const { return BendsInteractorComponent; }
 
 protected:
 	virtual void BeginPlay() override;
@@ -62,6 +74,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UGameplayCameraComponent> GameplayCameraComponent{nullptr};
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UBendsInteractorComponent> BendsInteractorComponent{ nullptr };
+
 	UFUNCTION(BlueprintImplementableEvent, Category = "PlayerCharacter|Input")
 	void MoveCallback(const FVector2D& Value);
 
@@ -74,6 +89,9 @@ protected:
 
 	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "PlayerCharacter|Input", meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UInputAction> MoveAction;
+
+	UPROPERTY(BlueprintReadOnly, EditDefaultsOnly, Category = "PlayerCharacter|Input", meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UInputAction> InteractAction;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "PlayerCharacter|Input")
 	float MouseSensitibity{1.0f};
@@ -90,6 +108,8 @@ protected:
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
 
+	void InteractStarted(const FInputActionValue& Value);
+	void InteractCompleted(const FInputActionValue& Value);
 
 public:
 	FORCEINLINE class UQTEActionComponent* GetQTEActionComponent() const { return QTEActionComponent; }

@@ -60,6 +60,7 @@ void UBendsEpisodeRule::Shutdown()
 	PendingPhase = FGameplayTag();
 	PhaseChangedEvent.Clear();
 	EpisodeEndedEvent.Clear();
+	TriggerEvent.Clear();
 }
 
 void UBendsEpisodeRule::AddPhaseDriver(const FGameplayTag& Phase, UBendsPhaseDriver* Driver, bool bCheckpoint)
@@ -319,3 +320,15 @@ void UBendsEpisodeRule::EndCurrentDriver()
 	}
 }
 
+void UBendsEpisodeRule::SendTrigger(const FGameplayTag& Trigger, const FBendsTriggerContext& Context)
+{
+	if (!bRunning || !Trigger.IsValid())
+	{
+		return;
+	}
+
+	UE_LOG(LogBends, Log, TEXT("Trigger %s (phase %s)"), *Trigger.ToString(), *CurrentPhase.ToString());
+
+	OnTrigger(Trigger, Context);
+	TriggerEvent.Broadcast(Trigger, Context);
+}

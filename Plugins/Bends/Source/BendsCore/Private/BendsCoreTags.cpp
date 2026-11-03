@@ -9,5 +9,8 @@ namespace BendsCoreTags
 	UE_DEFINE_GAMEPLAY_TAG(Phase, "Bends.Phase");
 	UE_DEFINE_GAMEPLAY_TAG(Clock, "Bends.Clock");
 	UE_DEFINE_GAMEPLAY_TAG(Flag, "Bends.Flag");
+
+	UE_DEFINE_GAMEPLAY_TAG(Objective, "Bends.Objective");
+	UE_DEFINE_GAMEPLAY_TAG(Trigger, "Bends.Trigger");
 }
 

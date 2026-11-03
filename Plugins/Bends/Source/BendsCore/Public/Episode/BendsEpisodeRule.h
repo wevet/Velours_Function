@@ -6,6 +6,7 @@
 #include "UObject/Object.h"
 #include "Tickable.h"
 #include "GameplayTagContainer.h"
+#include "Game/BendsViewMode.h"
 #include "BendsEpisodeRule.generated.h"
 
 class ABendsGameModeBase;
@@ -35,6 +36,15 @@ struct FBendsPhaseEntry
 	UPROPERTY()
 	bool bCheckpoint = false;
 };
+
+struct FBendsTriggerContext
+{
+	AActor* Instigator = nullptr;   // 操作したポーンなど
+	AActor* Target = nullptr;       // インタラクト対象など
+	EBendsViewMode ViewMode = EBendsViewMode::FirstPerson;
+};
+
+DECLARE_MULTICAST_DELEGATE_TwoParams(FBendsTriggerEvent, const FGameplayTag& /*Trigger*/, const FBendsTriggerContext& /*Context*/);
 
 /**
  * 1つのEPの進行を管理するルールの基底。
@@ -102,6 +112,9 @@ public:
 	virtual ETickableTickType GetTickableTickType() const override;
 	virtual UWorld* GetTickableGameObjectWorld() const override { return GetWorld(); }
 
+	void SendTrigger(const FGameplayTag& Trigger, const FBendsTriggerContext& Context);
+	FBendsTriggerEvent& OnTriggerReceived() { return TriggerEvent; }
+
 protected:
 	// 派生クラスでフェーズを登録する。Initializeの中で1回だけ呼ばれる
 	virtual void BuildPhases() {}
@@ -135,6 +148,9 @@ protected:
 
 	// OnPhaseTickを呼ぶか（経過時間とドライバーのTickは常に動く）
 	bool bPhaseTickEnabled = false;
+
+	virtual void OnTrigger(const FGameplayTag& Trigger, const FBendsTriggerContext& Context) {}
+	FBendsTriggerEvent TriggerEvent;
 
 private:
 	int32 FindPhaseIndex(const FGameplayTag& Phase) const;

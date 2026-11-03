@@ -17,6 +17,7 @@
 #include "Component/LocomotionComponent.h"
 
 #include "Item/BulletHoldWeaponActor.h"
+#include "Interaction/BendsInteractorComponent.h"
 
 // built in
 #include "Camera/CameraComponent.h"
@@ -62,6 +63,8 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 	GameplayCameraComponent->SetupAttachment(SkeletalMeshComponent, FName(TEXT("root")));
 	GameplayCameraComponent->bRunInEditor = false;
 
+	BendsInteractorComponent = CreateDefaultSubobject<UBendsInteractorComponent>(TEXT("InteractorComponent"));
+	BendsInteractorComponent->bAutoActivate = 0;
 
 #if WITH_EDITORONLY_DATA
 	// https://forums.unrealengine.com/t/world-partion-current-pawn-vanishes-when-reaching-cell-loading-range-limit/255655/7
@@ -78,6 +81,7 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 	MinimapMarkerComponent->SetVisibleMakerTag(false);
 
 	AbilitySystemCreationPolicy = EAbilitySystemCreationPolicy::Always;
+
 }
 
 void APlayerCharacter::Tick(float DeltaTime)
@@ -109,6 +113,13 @@ void APlayerCharacter::SetupPlayerInputComponent(UInputComponent* PlayerInputCom
 		if (LookAction)
 		{
 			EnhancedInputComponent->BindAction(LookAction, ETriggerEvent::Triggered, this, &APlayerCharacter::Look);
+		}
+
+		if (InteractAction)
+		{
+			EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Started, this, &APlayerCharacter::InteractStarted);
+			EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Completed, this, &APlayerCharacter::InteractCompleted);
+			EnhancedInputComponent->BindAction(InteractAction, ETriggerEvent::Canceled, this, &APlayerCharacter::InteractCompleted);
 		}
 	}
 }
@@ -638,7 +649,7 @@ void APlayerCharacter::NotifyRegisterMission(const int32 MissionIndex)
 void APlayerCharacter::Move(const FInputActionValue& Value)
 {
 
-	if (IsInputKeyDisable())
+	if (IsInputKeyDisable() || (Controller && Controller->IsMoveInputIgnored()))
 	{
 		MovementInput = FVector2D::ZeroVector;
 		return;
@@ -704,6 +715,22 @@ bool APlayerCharacter::IsFPSControlMode() const
 		return ASC->HasMatchingGameplayTag(TAG_Game_FPS);
 	}
 	return false;
+}
+
+void APlayerCharacter::InteractStarted(const FInputActionValue& Value)
+{
+	if (!IsInputKeyDisable() && BendsInteractorComponent)
+	{
+		BendsInteractorComponent->BeginInput();
+	}
+}
+
+void APlayerCharacter::InteractCompleted(const FInputActionValue& Value)
+{
+	if (BendsInteractorComponent)
+	{
+		BendsInteractorComponent->EndInput();
+	}
 }
 
 
