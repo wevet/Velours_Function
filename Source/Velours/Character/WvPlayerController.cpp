@@ -733,8 +733,11 @@ void AWvPlayerController::OnDialogueFinished_Callback()
 
 void AWvPlayerController::PawnFPSChange_Callback(const bool bIsFPSEnable)
 {
-	// fpsの場合は非表示
-	UMGManager->VisibleCombatUI(!bIsFPSEnable);
+	if (IsValid(UMGManager))
+	{
+		// fpsの場合は非表示
+		UMGManager->VisibleCombatUI(!bIsFPSEnable);
+	}
 }
 
 

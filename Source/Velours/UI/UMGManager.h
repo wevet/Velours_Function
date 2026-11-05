@@ -48,6 +48,7 @@ public:
 
 	UDialogueChoiceWidget* GetDialogueChoiceWidget() const { return DialogueChoiceWidget; }
 
+	bool IsInInitialized() const { return bIsInInitialized; }
 
 protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = Controller)
@@ -65,6 +66,6 @@ private:
 
 	void SetTickableWhenPaused();
 
-
+	bool bIsInInitialized{false};
 };
 

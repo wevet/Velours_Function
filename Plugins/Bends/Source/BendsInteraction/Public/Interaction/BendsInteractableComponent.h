@@ -13,25 +13,25 @@ class UBendsInteractionEffect;
 DECLARE_MULTICAST_DELEGATE_TwoParams(FBendsInteractedEvent, UBendsInteractableComponent* /*Interactable*/, const FBendsInteractionContext& /*Context*/);
 
 /**
- * インタラクトできる物に付けるコンポーネント（拾う物、調べる物、扉など）。
+ * A component attached to interactive objects (items to pick up, items to inspect, doors, etc.).
  *
- * コンポーネントの位置が、狙う点、印を出す点、手を伸ばす先（Motion Warpingの目標）になる。
- * 物理の当たり判定は使わず、UBendsInteractorComponentが登録済みの対象から視線で選ぶ。
+ * The component’s position serves as the target point, the point where a marker appears, and the destination of a reach (the target for Motion Warping).
+ * Instead of using physics collision detection, the player selects a target by looking at objects with the UBendsInteractorComponent registered.
  *
- * 結果はEffectsに部品で設定する（目標の通知、フラグ、トリガー、ホールドの解除など）。
- * ゲーム側の個別の処理（扉を開ける等）はOnInteractedで受け取る。
+ * Results are configured via components in Effects (target notification, flags, triggers, releasing a hold, etc.).
+ * Game-side specific processing (such as opening a door) is handled via *OnInteracted*.
  *
- * アニメーション:
- *   AbilityEventTagを設定すると、ポーンのASCにGameplay Eventを送り、アビリティがMontageを再生する。
- *   Payload.OptionalObjectがこのコンポーネント、EventMagnitudeが視点（FPS=0、TPS=1）。
- *   空なら即座に結果を出す（グレーボックス用）。
+ * Animation:
+ *   Setting *AbilityEventTag* sends a Gameplay Event to the Pawn’s ASC, causing the ability to play a Montage.
+ *   `Payload.OptionalObject` is this component, and `EventMagnitude` is the viewpoint (FPS=0, TPS=1).
+ *   If empty, the result is returned immediately (for graybox use).
  *
- * 1回きり（bOneShot）の対象は、InteractionIdをフラグとして進行状況に記録する。
- * チェックポイントからやり直すと、その時点の状態に戻る。
+ * For one-time (bOneShot) events, the InteractionId is recorded as a flag to track progress.
+ * Restarting from a checkpoint returns the player to the state at that point.
  *
- * 使える条件:
- *   RequiredPhases … 今のフェーズがいずれかに一致する（親のタグでEP全体も指定できる）
- *   RequiredFlags  … すべてのフラグが条件を満たす
+ * Usage Conditions:
+ *   RequiredPhases … The current phase matches any of the specified phases (the entire EP can also be specified via the parent tag)
+ *   RequiredFlags  … All flags meet the specified conditions
  */
 UCLASS(ClassGroup = (Bends), meta = (BlueprintSpawnableComponent))
 class BENDSINTERACTION_API UBendsInteractableComponent : public USceneComponent

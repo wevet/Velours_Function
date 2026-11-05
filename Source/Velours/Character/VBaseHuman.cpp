@@ -5,6 +5,7 @@
 #include "Component/WvSkeletalMeshComponent.h"
 
 #include "Components/CapsuleComponent.h"
+#include "Components/ChildActorComponent.h"
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(VBaseHuman)
 
@@ -73,4 +74,19 @@ FGameplayTag AVBaseHuman::GetDialogueSpeakerTag() const
 	return HumanNameTag;
 }
 
+AActor* AVBaseHuman::GetVisualActor() const
+{
+	TArray<UActorComponent*> Components = GetComponentsByTag(UChildActorComponent::StaticClass(), VisualOverrideTag);
+	for (UActorComponent* Component : Components)
+	{
+		if (const UChildActorComponent* ChildActor = Cast<UChildActorComponent>(Component))
+		{
+			if (AActor* Actor = ChildActor->GetChildActor())
+			{
+				return Actor;
+			}
+		}
+	}
+	return nullptr;
+}
 

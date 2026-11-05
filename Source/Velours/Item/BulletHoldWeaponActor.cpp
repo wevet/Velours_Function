@@ -178,8 +178,8 @@ const FVector ABulletHoldWeaponActor::CalcTraceEndPosition()
 	{
 		if (const APlayerCharacter* PC = Cast<APlayerCharacter>(Character))
 		{
-			const FVector CameraLocation = PC->GetTPSCamera()->GetComponentLocation();
-			const FVector CameraForward = PC->GetTPSCamera()->GetForwardVector();
+			const FVector CameraLocation = PC->GetGameplayCameraComponent()->GetComponentLocation();
+			const FVector CameraForward = PC->GetGameplayCameraComponent()->GetForwardVector();
 			const FVector CameraTraceEnd = CameraLocation + (CameraForward * PawnAttackParam.TraceRange);
 
 			FHitResult CameraHitResult(ForceInit);

@@ -15,6 +15,7 @@ class AWvPlayerController;
 class UPostProcessComponent;
 class UGameplayCameraComponent;
 class UBendsInteractorComponent;
+class UVFirstPersonMotionComponent;
 
 /**
  * 
@@ -63,7 +64,7 @@ protected:
 	TObjectPtr<class UWvSpringArmComponent> CameraBoom{ nullptr };
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
-	TObjectPtr<class UCameraComponent> TPSCamera{ nullptr };
+	TObjectPtr<class UCameraComponent> FPSCamera{ nullptr };
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UQTEActionComponent> QTEActionComponent{ nullptr };
@@ -76,6 +77,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UBendsInteractorComponent> BendsInteractorComponent{ nullptr };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UVFirstPersonMotionComponent> FirstPersonMotionComponent{ nullptr };
 
 	UFUNCTION(BlueprintImplementableEvent, Category = "PlayerCharacter|Input")
 	void MoveCallback(const FVector2D& Value);
@@ -105,6 +109,9 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerCharacter|Input")
 	float HeldYawDelta{0.f};
 
+	UPROPERTY(EditDefaultsOnly, Category = "PlayerCharacter|Camera")
+	FName FPSCameraSocketName = TEXT("FPCamera");
+
 	void Move(const FInputActionValue& Value);
 	void Look(const FInputActionValue& Value);
 
@@ -114,8 +121,8 @@ protected:
 public:
 	FORCEINLINE class UQTEActionComponent* GetQTEActionComponent() const { return QTEActionComponent; }
 	FORCEINLINE class UWvSpringArmComponent* GetCameraBoom() const { return CameraBoom; }
-	FORCEINLINE class UCameraComponent* GetTPSCamera() const { return TPSCamera; }
-
+	FORCEINLINE class USceneComponent* GetGameplayCameraComponent() const;
+	FORCEINLINE class UVFirstPersonMotionComponent* GetFirstPersonMotionComponent() const { return FirstPersonMotionComponent; }
 
 	UPROPERTY(BlueprintAssignable)
 	FBoolOneParamDelegate FPSChangeDelegate;
@@ -138,6 +145,9 @@ public:
 
 	UFUNCTION(BlueprintCallable, Category = "Player|System")
 	void SetFPSMode(const bool bIsEnableFPS);
+
+	virtual void RefreshVisual() override;
+
 
 protected:
 	virtual void PostAbilitySystemInitialize() override;

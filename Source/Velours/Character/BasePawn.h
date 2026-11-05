@@ -306,6 +306,7 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Shape")
 	FCharacterInfo GetCharacterInfo() const;
 
+	virtual void RefreshVisual() {};
 
 #pragma region NearlestAction
 	const TArray<AActor*> FindNearestTargets(const float Distance, const float AngleThreshold);

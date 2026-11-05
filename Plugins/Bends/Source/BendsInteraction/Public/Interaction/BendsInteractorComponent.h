@@ -21,34 +21,34 @@ DECLARE_MULTICAST_DELEGATE_TwoParams(FBendsInteractionFocusChanged, UBendsIntera
 DECLARE_MULTICAST_DELEGATE_OneParam(FBendsInteractionStateEvent, UBendsInteractableComponent* /*Interactable*/);
 
 /**
- * プレイヤーのポーンに付けて、インタラクトを行うコンポーネント。
+ * A component attached to the player’s pawn that enables interaction.
  *
- * 候補の選び方（ScanIntervalごと）:
- *   登録済みの対象から、視線の方向に一番近い物を選ぶ。遮蔽物があれば除く。
- *   FPS … 距離も遮蔽もカメラから測る
- *   TPS … 狙いの方向はカメラ、距離と遮蔽はキャラクターから測る。
- *         視線の先になければ、キャラクターの前方の近くから選ぶ（ProximityRadius）
- *   視点はIBendsViewModeProviderから取る。
+ * How to select candidates (per ScanInterval):
+ *   Select the object closest to the direction of the player’s line of sight from among registered targets. Exclude objects if they are obscured.
+ *   FPS … Distance and obstruction are measured from the camera.
+ *   TPS … The direction of aim is measured from the camera; distance and obstruction are measured from the character.
+ *         If nothing is in the line of sight, select from objects near the character’s front (ProximityRadius).
+ *   The view is obtained from IBendsViewModeProvider.
  *
- * 入力:
- *   ポーンのインタラクトのアクションで、BeginInput（押下）とEndInput（解放）を呼ぶ。
- *   押す対象は押した瞬間、長押しの対象はHoldDurationに達した時点で実行する。
+ * Input:
+ *   Calls `BeginInput` (press) and `EndInput` (release) as part of the pawn’s interact action.
+ *   For single-tap targets, execute immediately upon tapping; for long-press targets, execute when HoldDuration is reached.
  *
- * 実行の流れ:
- *   1. 移動を止める（対象の設定）。視点はCVarか対象の設定で、止める/制限する/止めない
- *   2. 対象にAbilityEventTagがあれば、ポーンのASCにGameplay Eventを送る
- *   3. アビリティから送り返されるイベントを待つ
- *        Bends.Interaction.Event.Contact   … 結果を出す（対象のEffectを実行）
- *        Bends.Interaction.Event.Finished  … 終わる（Contactがまだなら、ここで結果を出す）
- *        Bends.Interaction.Event.Cancelled … 結果を出さずに終わる
- *   4. 入力の固定を戻す
- *   アビリティがない、ASCがない、BusyTimeoutを超えた場合は、警告を出して進める。
+ * Execution Flow:
+ *   1. Stop movement (based on target settings). Whether to stop, restrict, or not stop movement is determined by CVar or target settings
+ *   2. If the target has an AbilityEventTag, send a Gameplay Event to the pawn’s ASC
+ *   3. Wait for the event sent back from the ability
+ *        Bends.Interaction.Event.Contact   … Produce a result (execute the target’s Effect)
+ *        Bends.Interaction.Event.Finished  … End (if Contact hasn’t occurred yet, produce the result here)
+ *        Bends.Interaction.Event.Cancelled … End without producing a result
+ *   4. Restore input locking
+ *   If there is no ability, no ASC, or the BusyTimeout has been exceeded, display a warning and proceed.
  *
- * 一時的な禁止は、理由のタグで足し引きする（Bends.Interaction.Block.*）。
+ * Temporary blocking is controlled by adding or subtracting reason tags (Bends.Interaction.Block.*).
  *
  * CVar:
- *   bends.Interaction.LookLock 0/1/2 … 動作中の視点（止めない/止める/範囲を制限）
- *   bends.Interaction.Debug    0/1   … 候補のデバッグ表示
+ *   bends.Interaction.LookLock 0/1/2 … Viewpoint during operation (do not lock/lock/restrict range)
+ *   bends.Interaction.Debug    0/1   … Display debug information for candidates
  */
 UCLASS(ClassGroup = (Bends), meta = (BlueprintSpawnableComponent))
 class BENDSINTERACTION_API UBendsInteractorComponent : public UActorComponent

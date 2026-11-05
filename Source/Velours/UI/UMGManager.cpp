@@ -20,6 +20,8 @@ void UUMGManager::NativeConstruct()
 {
 	Super::NativeConstruct();
 
+	bIsInInitialized = false;
+
 	// @NOTE
 	// •s—v‚È‚Ì‚Åˆê’U”ñ•\Ž¦
 	VisibleMinimapUI(false);
@@ -36,6 +38,7 @@ void UUMGManager::BeginDestroy()
 
 void UUMGManager::Initializer(ABasePawn* NewCharacter)
 {
+
 	CombatUIController = CreateWidget<UCombatUIController>(this, CombatUIControllerTemplate);
 	if (CombatUIController)
 	{
@@ -53,6 +56,7 @@ void UUMGManager::Initializer(ABasePawn* NewCharacter)
 		DialogueChoiceWidget->Initializer(NewCharacter);
 	}
 
+	bIsInInitialized = true;
 	//check(NewCharacter->InputComponent);
 	//NewCharacter->InputComponent->BindAction("Pause", IE_Pressed, this, &UUMGManager::SetTickableWhenPaused);
 }

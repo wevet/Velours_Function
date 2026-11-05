@@ -56,6 +56,14 @@ protected:
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "VBaseHuman|Config", meta = (Categories = "Character.Name"))
 	FGameplayTag HumanNameTag;
+
+
+	// 
+	UPROPERTY(EditDefaultsOnly, Category = "VBaseHuman|Config")
+	FName VisualOverrideTag = TEXT("VisualOverride");
+
+public:
+	AActor* GetVisualActor() const;
 };
 
 

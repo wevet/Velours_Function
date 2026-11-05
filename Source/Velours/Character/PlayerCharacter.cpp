@@ -3,21 +3,26 @@
 
 #include "Character/PlayerCharacter.h"
 #include "Velours.h"
+#include "Character/VFirstPersonVisual.h"
 #include "WvPlayerController.h"
+
 #include "Component/WvSpringArmComponent.h"
 #include "Component/InventoryComponent.h"
 #include "Component/HitTargetComponent.h"
 #include "Component/WvSkeletalMeshComponent.h"
 #include "Component/QTEActionComponent.h"
-#include "Mission/MinimapMarkerComponent.h"
-#include "GameExtension.h"
-#include "Ability/WvAbilitySystemComponent.h"
 #include "Component/WvFactionComponent.h"
 #include "Component/WvRelationshipComponent.h"
 #include "Component/LocomotionComponent.h"
+#include "Component/VFirstPersonMotionComponent.h"
+
+#include "Mission/MinimapMarkerComponent.h"
+#include "GameExtension.h"
+#include "Ability/WvAbilitySystemComponent.h"
 
 #include "Item/BulletHoldWeaponActor.h"
 #include "Interaction/BendsInteractorComponent.h"
+
 
 // built in
 #include "Camera/CameraComponent.h"
@@ -65,6 +70,18 @@ APlayerCharacter::APlayerCharacter(const FObjectInitializer& ObjectInitializer) 
 
 	BendsInteractorComponent = CreateDefaultSubobject<UBendsInteractorComponent>(TEXT("InteractorComponent"));
 	BendsInteractorComponent->bAutoActivate = 1;
+
+	FirstPersonMotionComponent = CreateDefaultSubobject<UVFirstPersonMotionComponent>(TEXT("FirstPersonMotion"));
+	FirstPersonMotionComponent->bAutoActivate = 1;
+
+	FPSCamera = CreateDefaultSubobject<UCameraComponent>(TEXT("FPSCamera"));
+	FPSCamera->SetupAttachment(SkeletalMeshComponent, FPSCameraSocketName);
+	FPSCamera->bAutoActivate = false;
+
+	FPSCamera->bEnableFirstPersonFieldOfView = true;
+	FPSCamera->FirstPersonFieldOfView = 70.f; 
+	FPSCamera->bEnableFirstPersonScale = true;
+	FPSCamera->FirstPersonScale = 1.f;
 
 #if WITH_EDITORONLY_DATA
 	// https://forums.unrealengine.com/t/world-partion-current-pawn-vanishes-when-reaching-cell-loading-range-limit/255655/7
@@ -158,19 +175,11 @@ void APlayerCharacter::BeginPlay()
 
 	}
 
-	{
-		auto Components = GetComponentsByTag(UCameraComponent::StaticClass(), TEXT("TPS Camera"));
-		for (auto Comp : Components)
-		{
-			if (UCameraComponent* CamComp = Cast<UCameraComponent>(Comp))
-			{
-				TPSCamera = CamComp;
-			}
 
-		}
+	if (FirstPersonMotionComponent)
+	{
+		FirstPersonMotionComponent->SetCamera(FPSCamera);
 	}
-	
-	
 
 	QTEActionComponent->QTEBeginDelegate.AddUniqueDynamic(this, &ThisClass::OnQTEBegin_Callback);
 	QTEActionComponent->QTEEndDelegate.AddUniqueDynamic(this, &ThisClass::OnQTEEnd_Callback);
@@ -690,6 +699,13 @@ void APlayerCharacter::SetFPSMode(const bool bIsEnableFPS)
 			ASC->RemoveGameplayTag(TAG_Game_TPS);
 
 			PostProcessBodyCamComponent->SetVisibility(true);
+
+			FPSCamera->SetActive(true);
+
+			if (GameplayCameraComponent && GameplayCameraComponent->IsActive())
+			{
+				GameplayCameraComponent->Deactivate();
+			}
 		}
 		else
 		{
@@ -697,12 +713,28 @@ void APlayerCharacter::SetFPSMode(const bool bIsEnableFPS)
 			ASC->RemoveGameplayTag(TAG_Game_FPS);
 
 			PostProcessBodyCamComponent->SetVisibility(false);
-		}
-	}
 
-	if (FPSChangeDelegate.IsBound())
-	{
-		FPSChangeDelegate.Broadcast(bIsEnableFPS);
+			FPSCamera->SetActive(false);
+
+			if (GameplayCameraComponent)
+			{
+				if (APlayerController* PC = Cast<APlayerController>(Controller))
+				{
+					GameplayCameraComponent->Activate();
+					GameplayCameraComponent->ActivateCameraForPlayerController(PC);
+				}
+			}
+		}
+
+		if (FPSChangeDelegate.IsBound())
+		{
+			FPSChangeDelegate.Broadcast(bIsEnableFPS);
+		}
+
+		RefreshVisual();
+
+		UE_LOG(LogTemp, Log, TEXT("[%s] : bIsEnableFPS => %s"), *FString(__FUNCTION__), bIsEnableFPS ? TEXT("true") : TEXT("false"));
+
 	}
 
 }
@@ -732,5 +764,47 @@ void APlayerCharacter::InteractCompleted(const FInputActionValue& Value)
 		BendsInteractorComponent->EndInput();
 	}
 }
+
+USceneComponent* APlayerCharacter::GetGameplayCameraComponent() const
+{
+	return GameplayCameraComponent; 
+}
+
+void APlayerCharacter::RefreshVisual()
+{
+	AActor* VisualActor = GetVisualActor();
+	IVFirstPersonVisual* Visual = Cast<IVFirstPersonVisual>(VisualActor);
+	if (!Visual)
+	{
+		return;
+	}
+
+	const bool bWasFPSMode = IsFPSControlMode();
+
+	if (VisualActor->GetOwner() != this)
+	{
+		VisualActor->SetOwner(this);
+	}
+
+	Visual->SetFirstPersonView(bWasFPSMode);
+
+	// カメラを、見えている体の頭に付ける
+	USceneComponent* Parent = nullptr;
+	FName Socket = NAME_None;
+	if (FPSCamera && Visual->GetFirstPersonCameraAttachment(Parent, Socket))
+	{
+		//FPSCamera->AttachToComponent(Parent, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+	}
+	else
+	{
+		UE_LOG(LogBaseCharacter, Warning, TEXT("[%s] No first-person camera attachment on the visual actor."), *FString(__FUNCTION__));
+	}
+
+	if (FirstPersonMotionComponent)
+	{
+		FirstPersonMotionComponent->ResetView();
+	}
+}
+
 
 
