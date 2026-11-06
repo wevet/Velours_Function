@@ -2,14 +2,15 @@
 
 #include "AnimNode_CustomAimSolver.h"
 #include "QuadrupedIKLibrary.h"
+#include "QuadrupedIK.h"
+#include "WvAnimCollisionQuery.h"
 
 #include "Animation/AnimInstanceProxy.h"
-#include "DrawDebugHelpers.h"
 #include "AnimationRuntime.h"
-#include "AnimationCoreLibrary.h"
 #include "Algo/Reverse.h"
 #include "Kismet/KismetSystemLibrary.h"
 #include "Kismet/KismetMathLibrary.h"
+#include "Engine/EngineTypes.h"
 
 
 
@@ -19,6 +20,11 @@ DECLARE_CYCLE_STAT(TEXT("CustomAimSolver Eval"), STAT_CustomAimSolver_EvalSKelCo
 
 namespace AimHelper
 {
+	const FName GetBoneNameFromCompactIndex(const FBoneContainer& BoneContainer, const FCompactPoseBoneIndex BoneIndex)
+	{
+		const int32 SkeletonIndex = BoneContainer.GetSkeletonIndex(BoneIndex);
+		return BoneContainer.GetReferenceSkeleton().GetBoneName(SkeletonIndex);
+	}
 
 	FRotator GetHandYaw(
 		const bool bIsHandArm,
@@ -106,6 +112,158 @@ namespace AimHelper
 			}
 		}
 		return FRotator(0.0f, 0.0f, Composed_Roll);
+	}
+
+
+	const FVector ClampRotateVector(
+		const FVector& InputPosition,
+		const FVector& ForwardDirection,
+		const FVector& OriginLocation,
+		const float V_ClampMin,
+		const float V_ClampMax,
+		const float H_ClampMin,
+		const float H_ClampMax,
+		const bool bIsUseNaturalRotations)
+	{
+		const float Magnitude = (OriginLocation - InputPosition).Size();
+		const FVector Rot1_V = (ForwardDirection).GetSafeNormal();
+		const FVector Rot2_V = (InputPosition - OriginLocation).GetSafeNormal();
+		const FVector Rot3_V = Rot2_V;
+		const float Degrees = UKismetMathLibrary::DegAcos(FVector::DotProduct(Rot1_V, Rot2_V));
+		const float Degrees_Vertical = UKismetMathLibrary::DegAcos(FVector::DotProduct(Rot1_V, Rot3_V));
+
+		const FVector Angle_Cross_Result = FVector::CrossProduct(Rot2_V, Rot1_V);
+		const float Dir = FVector::DotProduct(Angle_Cross_Result, FVector::CrossProduct(FVector::UpVector, Rot1_V));
+		const float Alpha_Dir_Vertical = (Dir / 2) + 0.5f;
+		const float Degrees_Horizontal = UKismetMathLibrary::DegAcos(FVector::DotProduct(Rot1_V, Rot3_V));
+		FVector Angle_Cross_Result_Horizontal = FVector::CrossProduct(Rot2_V, Rot1_V);
+		float Dir_Horizontal = FVector::DotProduct(Angle_Cross_Result_Horizontal, FVector::UpVector);
+
+		float Alpha_Dir_Horizontal = (Dir_Horizontal / 2) + 0.5f;
+		float Max_Vertical_Angle = V_ClampMax;
+		float Min_Vertical_Angle = V_ClampMin;
+		Max_Vertical_Angle = bIsUseNaturalRotations ? Max_Vertical_Angle : FMath::Clamp(Max_Vertical_Angle, -85, 85);
+		Min_Vertical_Angle = bIsUseNaturalRotations ? Min_Vertical_Angle : FMath::Clamp(Min_Vertical_Angle, -85, 85);
+
+		const float Horizontal_Degree_Priority = (FMath::Lerp(
+			FMath::Abs(H_ClampMin),
+			FMath::Abs(H_ClampMax),
+			FMath::Clamp(Alpha_Dir_Horizontal, 0.0f, 1.0f)));
+
+		const float Vertical_Degree_Priority = (FMath::Lerp(
+			FMath::Abs(Min_Vertical_Angle),
+			FMath::Abs(Max_Vertical_Angle),
+			FMath::Clamp(Alpha_Dir_Vertical, 0.0f, 1.0f)));
+
+		const float Selected_Clamp_Value = FMath::Lerp(Vertical_Degree_Priority, Horizontal_Degree_Priority, FMath::Clamp(FMath::Abs(Dir_Horizontal), 0.0f, 1.0f));
+
+		float Alpha = (Selected_Clamp_Value / (FMath::Max(Selected_Clamp_Value, Degrees)));
+		Alpha = FMath::Clamp(Alpha, 0.0f, 1.0f);
+
+		const FVector OutputRot = FMath::Lerp(Rot1_V, Rot2_V, Alpha);
+		return (OriginLocation + (OutputRot.GetSafeNormal() * Magnitude));
+	}
+
+
+	const FVector ClampRotateVector_NoLimit(
+		const FVector& InputPosition,
+		const FVector& ForwardDirection,
+		const FVector& OriginLocation,
+		const float V_ClampMin,
+		const float V_ClampMax,
+		const float H_ClampMin,
+		const float H_ClampMax,
+		const bool bIsUseNaturalRotations)
+	{
+		const FVector ToTarget = InputPosition - OriginLocation;
+		const float Magnitude = ToTarget.Size();
+
+		if (Magnitude <= KINDA_SMALL_NUMBER)
+		{
+			return InputPosition;
+		}
+
+		const FVector Forward = ForwardDirection.GetSafeNormal();
+		if (Forward.IsNearlyZero())
+		{
+			return InputPosition;
+		}
+
+		const FVector WorldUp = FVector::UpVector;
+
+		// Forward から水平右方向を作る
+		FVector Right = FVector::CrossProduct(WorldUp, Forward).GetSafeNormal();
+		if (Right.IsNearlyZero())
+		{
+			// Forward がほぼ Up/Down のときの保険
+			FVector FallbackUp = FVector::ForwardVector;
+			Right = FVector::CrossProduct(FallbackUp, Forward).GetSafeNormal();
+		}
+
+		FVector Up = FVector::CrossProduct(Forward, Right).GetSafeNormal();
+		if (Up.IsNearlyZero())
+		{
+			Up = WorldUp;
+		}
+
+		const FVector Dir = ToTarget / Magnitude;
+
+		// ローカル基底上の成分
+		const float X = FVector::DotProduct(Dir, Forward);
+		const float Y = FVector::DotProduct(Dir, Right);
+		const float Z = FVector::DotProduct(Dir, Up);
+
+		// signed horizontal / vertical angles
+		float HorizontalDeg = FMath::RadiansToDegrees(FMath::Atan2(Y, X));
+		const float PlanarLen = FMath::Sqrt(FMath::Max(X * X + Y * Y, 0.0f));
+		float VerticalDeg = FMath::RadiansToDegrees(FMath::Atan2(Z, PlanarLen));
+
+
+		HorizontalDeg = FMath::ClampAngle(HorizontalDeg, H_ClampMin, H_ClampMax);
+		VerticalDeg = FMath::ClampAngle(VerticalDeg, V_ClampMin, V_ClampMax);
+
+		const float HorizontalRad = FMath::DegreesToRadians(HorizontalDeg);
+		const float VerticalRad = FMath::DegreesToRadians(VerticalDeg);
+
+		const float CosV = FMath::Cos(VerticalRad);
+		const float SinV = FMath::Sin(VerticalRad);
+		const float CosH = FMath::Cos(HorizontalRad);
+		const float SinH = FMath::Sin(HorizontalRad);
+
+		FVector ClampedDir = Forward * (CosV * CosH) + Right * (CosV * SinH) + Up * SinV;
+		ClampedDir.Normalize();
+		return OriginLocation + ClampedDir * Magnitude;
+	}
+
+
+	float GetSignedHorizontalAngleDeg(const FVector& ForwardDirection, const FVector& OriginLocation, const FVector& TargetLocation)
+	{
+		const FVector Forward = ForwardDirection.GetSafeNormal();
+		if (Forward.IsNearlyZero())
+		{
+			return 0.0f;
+		}
+
+		const FVector WorldUp = FVector::UpVector;
+
+		// 今の符号系に合わせて Forward x Up
+		FVector Right = FVector::CrossProduct(Forward, WorldUp).GetSafeNormal();
+		if (Right.IsNearlyZero())
+		{
+			Right = FVector::RightVector;
+		}
+
+		const FVector ToTarget = (TargetLocation - OriginLocation).GetSafeNormal();
+		const FVector FlatDir = FVector::VectorPlaneProject(ToTarget, WorldUp).GetSafeNormal();
+		if (FlatDir.IsNearlyZero())
+		{
+			return 0.0f;
+		}
+
+		const float X = FVector::DotProduct(FlatDir, Forward);
+		const float Y = FVector::DotProduct(FlatDir, Right);
+
+		return FMath::RadiansToDegrees(FMath::Atan2(Y, X));
 	}
 
 
@@ -624,16 +782,19 @@ namespace AimHelper
 		const FVector TargetDir = (TargetLocationInComponentSpace - HeadLocation).GetSafeNormal();
 		FVector HorizontalTargetDir = TargetDir;
 		FVector OppositeTargetDir = (HeadLocation - TargetLocationInComponentSpace).GetSafeNormal();
-		OppositeTargetDir.Y = 0;
+		//OppositeTargetDir.Y = 0;
+
+		const FQuat BaseRotation = ComponentBoneTransform.GetRotation();
 
 		const float AimClampInRadians = FMath::DegreesToRadians(FMath::Min(LookatClamp, 180.f));
-		const float DiffAngle = FMath::Acos(FVector::DotProduct(LookAtVector, OppositeTargetDir));
+
+		const float Dot1 = FMath::Clamp(FVector::DotProduct(LookAtVector, OppositeTargetDir), -1.0f, 1.0f);
+		const float DiffAngle = FMath::Acos(Dot1);
 
 		FVector SelectedVector = HorizontalTargetDir;
 
 		if (DiffAngle > AimClampInRadians)
 		{
-			//check(DiffAngle > 0.f);
 			FVector DeltaTarget = OppositeTargetDir - LookAtVector;
 			DeltaTarget *= (AimClampInRadians / DiffAngle);
 			OppositeTargetDir = LookAtVector + DeltaTarget;
@@ -641,11 +802,11 @@ namespace AimHelper
 		}
 
 		const float AimClampInRadiansForward = FMath::DegreesToRadians(FMath::Min(LookatClamp, 180.f));
-		const float DiffAngleForward = FMath::Acos(FVector::DotProduct(LookAtVector, HorizontalTargetDir));
+		const float Dot2 = FMath::Clamp(FVector::DotProduct(LookAtVector, HorizontalTargetDir), -1.0f, 1.0f);
+		const float DiffAngleForward = FMath::Acos(Dot2);
 
 		if (DiffAngleForward > AimClampInRadiansForward)
 		{
-			//check(DiffAngleForward > 0.f);
 			FVector DeltaTargetForward = HorizontalTargetDir - LookAtVector;
 			DeltaTargetForward *= (AimClampInRadiansForward / DiffAngleForward);
 			HorizontalTargetDir = LookAtVector + DeltaTargetForward;
@@ -673,83 +834,157 @@ namespace AimHelper
 		NormalizedDelta = FQuat::Slerp(NormalizedDeltaRef, NormalizedDelta, Intensity);
 		FTransform WSRotationTransform = ComponentBoneTransform;
 		FRotator NormalizedDeltaRot = NormalizedDelta.Rotator();
+
 		FRotator InnerBodyClampAbs = InnerBodyClamp;
 		InnerBodyClampAbs.Pitch = FMath::Abs(InnerBodyClampAbs.Pitch);
 		InnerBodyClampAbs.Yaw = FMath::Abs(InnerBodyClampAbs.Yaw);
 		InnerBodyClampAbs.Roll = FMath::Abs(InnerBodyClampAbs.Roll);
 
+
 		if (InnerBodyClampAbs.Pitch > 0)
 		{
-			NormalizedDeltaRot.Pitch = FMath::ClampAngle(NormalizedDeltaRot.Pitch, InnerBodyClampAbs.Pitch, -InnerBodyClampAbs.Pitch);
-			if (NormalizedDeltaRot.Pitch > 0)
-			{
-				NormalizedDeltaRot.Pitch = NormalizedDeltaRot.Pitch - InnerBodyClampAbs.Pitch;
-			}
-			else
-			{
-				NormalizedDeltaRot.Pitch = NormalizedDeltaRot.Pitch + InnerBodyClampAbs.Pitch;
-			}
+			NormalizedDeltaRot.Pitch = FMath::ClampAngle(NormalizedDeltaRot.Pitch, -InnerBodyClampAbs.Pitch, InnerBodyClampAbs.Pitch);
 		}
 
 		if (InnerBodyClampAbs.Roll > 0)
 		{
-			NormalizedDeltaRot.Roll = FMath::ClampAngle(NormalizedDeltaRot.Roll, InnerBodyClampAbs.Roll, -InnerBodyClampAbs.Roll);
-			if (NormalizedDeltaRot.Roll > 0)
-			{
-				NormalizedDeltaRot.Roll = NormalizedDeltaRot.Roll - InnerBodyClampAbs.Roll;
-			}
-			else
-			{
-				NormalizedDeltaRot.Roll = NormalizedDeltaRot.Roll + InnerBodyClampAbs.Roll;
-			}
+			NormalizedDeltaRot.Roll = FMath::ClampAngle(NormalizedDeltaRot.Roll, -InnerBodyClampAbs.Roll, InnerBodyClampAbs.Roll);
 		}
 
 		if (InnerBodyClampAbs.Yaw > 0)
 		{
-			NormalizedDeltaRot.Yaw = FMath::ClampAngle(NormalizedDeltaRot.Yaw, InnerBodyClampAbs.Yaw, -InnerBodyClampAbs.Yaw);
-			if (NormalizedDeltaRot.Yaw > 0)
-			{
-				NormalizedDeltaRot.Yaw = NormalizedDeltaRot.Yaw - InnerBodyClampAbs.Yaw;
-			}
-			else
-			{
-				NormalizedDeltaRot.Yaw = NormalizedDeltaRot.Yaw + InnerBodyClampAbs.Yaw;
-			}
+			NormalizedDeltaRot.Yaw = FMath::ClampAngle(NormalizedDeltaRot.Yaw, -InnerBodyClampAbs.Yaw, InnerBodyClampAbs.Yaw);
 		}
+
 		WSRotationTransform.SetRotation(NormalizedDeltaRot.Quaternion());
-		ComponentBoneTransform.SetRotation(WSRotationTransform.GetRotation() * ComponentBoneTransform.GetRotation());
+		ComponentBoneTransform.SetRotation(WSRotationTransform.GetRotation() * BaseRotation);
 		return ComponentBoneTransform;
 	}
 
-	/// <summary>
-	/// Head Fabrik IK
-	/// </summary>
-	void Evaluate_ConsecutiveBoneRotations(
+
+	FTransform LookAt_Processor_Helper_WithBaseRotation(
+		FTransform& ComponentBoneTransform,
+		const FQuat& BaseRotation,
+		const FVector& HeadLocation,
+		const FVector& OffsetVector,
+		const FAxis& LookAtAxis,
+		const float LookatClamp,
+		const FRotator& InnerBodyClamp,
+		bool bIsUseNaturalMethod = true,
+		float UpRotationClamp = 1.0f,
+		float Intensity = 1.0f,
+		bool bIsIntermediateJoint = false)
+	{
+		const FVector TargetLocationInComponentSpace = OffsetVector;
+		const FVector LookAtVector = LookAtAxis.GetTransformedAxis(ComponentBoneTransform).GetSafeNormal();
+
+		const FVector BoneLocation = ComponentBoneTransform.GetLocation();
+		const FVector TargetDir = (TargetLocationInComponentSpace - BoneLocation).GetSafeNormal();
+
+		FVector HorizontalTargetDir = TargetDir;
+		FVector OppositeTargetDir = (BoneLocation - TargetLocationInComponentSpace).GetSafeNormal();
+
+		const float AimClampInRadians = FMath::DegreesToRadians(FMath::Min(LookatClamp, 180.f));
+
+		const float Dot1 = FMath::Clamp(FVector::DotProduct(LookAtVector, OppositeTargetDir), -1.0f, 1.0f);
+		const float DiffAngle = FMath::Acos(Dot1);
+
+		FVector SelectedVector = HorizontalTargetDir;
+
+		if (DiffAngle > AimClampInRadians)
+		{
+			FVector DeltaTarget = OppositeTargetDir - LookAtVector;
+			DeltaTarget *= (AimClampInRadians / DiffAngle);
+			OppositeTargetDir = LookAtVector + DeltaTarget;
+			OppositeTargetDir.Normalize();
+		}
+
+		const float Dot2 = FMath::Clamp(FVector::DotProduct(LookAtVector, HorizontalTargetDir), -1.0f, 1.0f);
+		const float DiffAngleForward = FMath::Acos(Dot2);
+
+		if (DiffAngleForward > AimClampInRadians)
+		{
+			FVector DeltaTargetForward = HorizontalTargetDir - LookAtVector;
+			DeltaTargetForward *= (AimClampInRadians / DiffAngleForward);
+			HorizontalTargetDir = LookAtVector + DeltaTargetForward;
+			HorizontalTargetDir.Normalize();
+		}
+
+		SelectedVector = HorizontalTargetDir;
+		SelectedVector.Z *= UpRotationClamp;
+
+		FQuat NormalizedDelta = FQuat::FindBetweenNormals(LookAtVector, SelectedVector);
+
+		if (!bIsUseNaturalMethod)
+		{
+			const FRotator RotRef1 = UKismetMathLibrary::FindLookAtRotation(FVector::ZeroVector, SelectedVector * 100.0f);
+			const FRotator RotRef2 = UKismetMathLibrary::FindLookAtRotation(FVector::ZeroVector, LookAtVector * 100.0f);
+			NormalizedDelta = RotRef1.Quaternion() * RotRef2.Quaternion().Inverse();
+		}
+
+		const FQuat IdentityDelta = FQuat::Identity;
+
+		FVector RotEuler = NormalizedDelta.Euler();
+		RotEuler.X = FMath::ClampAngle(RotEuler.X, -LookatClamp, LookatClamp);
+		RotEuler.Y = FMath::ClampAngle(RotEuler.Y, -LookatClamp, LookatClamp);
+		RotEuler.Z = FMath::ClampAngle(RotEuler.Z, -LookatClamp, LookatClamp);
+
+		NormalizedDelta = FQuat::MakeFromEuler(RotEuler);
+		NormalizedDelta = FQuat::Slerp(IdentityDelta, NormalizedDelta, Intensity).GetNormalized();
+
+		FRotator DeltaRot = NormalizedDelta.Rotator();
+
+		FRotator ClampLimit = InnerBodyClamp;
+		ClampLimit.Pitch = FMath::Abs(ClampLimit.Pitch);
+		ClampLimit.Yaw = FMath::Abs(ClampLimit.Yaw);
+		ClampLimit.Roll = FMath::Abs(ClampLimit.Roll);
+
+		if (ClampLimit.Pitch > 0.0f)
+		{
+			DeltaRot.Pitch = FMath::ClampAngle(DeltaRot.Pitch, -ClampLimit.Pitch, ClampLimit.Pitch);
+		}
+
+		if (ClampLimit.Roll > 0.0f)
+		{
+			DeltaRot.Roll = FMath::ClampAngle(DeltaRot.Roll, -ClampLimit.Roll, ClampLimit.Roll);
+		}
+
+		if (ClampLimit.Yaw > 0.0f)
+		{
+			DeltaRot.Yaw = FMath::ClampAngle(DeltaRot.Yaw, -ClampLimit.Yaw, ClampLimit.Yaw);
+		}
+		const FQuat ClampedDeltaQuat = DeltaRot.Quaternion().GetNormalized();
+		ComponentBoneTransform.SetRotation((ClampedDeltaQuat * BaseRotation).GetNormalized());
+		return ComponentBoneTransform;
+	}
+
+
+	void Evaluate_ConsecutiveBoneRotations_LookAt(
 		FComponentSpacePoseContext& Output,
-		FRuntimeFloatCurve& LookBendingCurve,
 		const FBoneReference& RootBoneInput,
 		const FBoneReference& TipBoneInput,
-		const float LookatRadius,
 		const FRotator& InnerBodyClamp,
 		const FTransform& EffectorTransform,
 		const FAxis& LookAtAxis,
 		const FAxis& IntermediateLookAtAxis,
+		FRuntimeFloatCurve& InLookBendingCurve,
+		FRuntimeFloatCurve& InLookMultiplierCurve,
 		const bool bUseIntermediateAxis,
+		const bool bIsEnableDipMultiplier,
 		const float LookatClamp,
 		const float VerticalDipTreshold,
 		const float DownwardDipMultiplier,
 		const float InvertedDipMultiplier,
 		const float SideMultiplier,
 		const float SideDownMultiplier,
-		const bool bIsAlterPelvis,
 		const FTransform PelvisLocTarget,
-		FRuntimeFloatCurve& BendingMultiplierCurve,
 		const float UpRotClamp,
 		const bool bIsUseNaturalRotation,
 		const bool bIsSeparateHeadClamp,
 		const float HeadClampValue,
 		const FTransform& HeadTransf,
-		const bool bIsHeadRotOverride,
+		const bool bUsePerJointRotationOverrides,
+		const TMap<FName, FAimJointRotationOverride>& PerJointRotationOverrides,
 		TArray<FBoneTransform>& OutBoneTransforms)
 	{
 		const FBoneContainer& BoneContainer = Output.Pose.GetPose().GetBoneContainer();
@@ -777,7 +1012,6 @@ namespace AimHelper
 		}
 
 		const int32 NumTransforms = BoneIndices.Num();
-		//OutBoneTransforms.AddUninitialized(NumTransforms);
 
 		// Maximum length of skeleton segment at full extension
 		float MaximumReach = 0;
@@ -793,6 +1027,8 @@ namespace AimHelper
 			OutBoneTransforms[0] = FBoneTransform(RootBoneIndex, BoneCSTransform);
 			Chain.Add(FCCDIK_Modified_ChainLink(BoneCSTransform.GetLocation(), BoneLocalTransform.GetLocation(), BoneCSTransform.GetRotation(), 0.f, RootBoneIndex, 0));
 		}
+
+
 
 		// Go through remaining transforms
 		for (int32 TransformIndex = 1; TransformIndex < NumTransforms; TransformIndex++)
@@ -828,58 +1064,93 @@ namespace AimHelper
 		const FVector DiffPelvis = (PelvisLocation.GetLocation() - PelvisLocTarget.GetLocation());
 		FTransform PelvisRefFullTransform;
 
+		TArray<FQuat> BaseRotations;
+		BaseRotations.SetNumZeroed(NumTransforms);
+
+		for (int32 TransformIndex = 0; TransformIndex < NumTransforms; ++TransformIndex)
+		{
+			const FCompactPoseBoneIndex& BoneIndex = BoneIndices[TransformIndex];
+			BaseRotations[TransformIndex] = Output.Pose.GetComponentSpaceTransform(BoneIndex).GetRotation();
+		}
+
 		for (int32 LinkIndex = 0; LinkIndex < NumChainLinks; LinkIndex++)
 		{
 			const FCCDIK_Modified_ChainLink& ChainLink = Chain[LinkIndex];
-			float NewValue = LookBendingCurve.GetRichCurve()->Eval((float)LinkIndex / (float)NumChainLinks);
-			float MultiplierValue = BendingMultiplierCurve.GetRichCurve()->Eval((float)LinkIndex / (float)NumChainLinks);
+			const float NewValue = InLookBendingCurve.GetRichCurve()->Eval((float)LinkIndex / (float)NumChainLinks);
+			float MultiplierValue = InLookMultiplierCurve.GetRichCurve()->Eval((float)LinkIndex / (float)NumChainLinks);
 			FVector TempTargetLoc = CSEffectorLocation;
 
 			FAxis ActiveAxis = LookAtAxis;
-			if (bUseIntermediateAxis && LinkIndex > 0 && LinkIndex < (NumChainLinks - 1))
+
+			const bool bIsIntermediateJoint = (LinkIndex > 0 && LinkIndex < NumChainLinks - 1);
+			const bool bIsFirstJoint = (LinkIndex == 0);
+			const bool bIsLastJoint = (LinkIndex == NumChainLinks - 1);
+
+			if (bIsIntermediateJoint && bUseIntermediateAxis)
 			{
 				ActiveAxis = IntermediateLookAtAxis;
 			}
 
-			if (LinkIndex == NumChainLinks - 1)
+			// if last index to head joint pos
+			if (bIsLastJoint)
 			{
 				TempTargetLoc = HeadTransf.GetLocation();
 			}
 
-			if (LinkIndex == 0)
-			{
-				PelvisRefFullTransform = LookAt_Processor_Helper(
-					OutBoneTransforms[0].Transform,
-					HeadLocation.GetLocation(),
-					TempTargetLoc, 
-					LookAtAxis,
-					80, 
-					InnerBodyClamp,
-					bIsUseNaturalRotation, 
-					1.0f, 
-					1.0f);
-			}
+			const FVector RootPos = Chain[0].Position;
+			const float TargetDist = FVector::Dist(RootPos, CSEffectorLocation);
+			const float ReachRatio = (MaximumReach > KINDA_SMALL_NUMBER) ? (TargetDist / MaximumReach) : 0.0f;
+			const float ReachAlpha = FMath::Clamp(ReachRatio, 0.0f, 1.0f);
 
 			const FRotator OriginalRot = OutBoneTransforms[ChainLink.TransformIndex].Transform.Rotator();
 			float LookAtModifiedClamp = LookatClamp * NewValue;
 			float UpLookRatio = UpRotClamp;
 			FRotator InnerBodyClampVal = InnerBodyClamp;
 
-			if (bIsSeparateHeadClamp)
+			if (bIsSeparateHeadClamp && bIsLastJoint)
 			{
-				if (LinkIndex == NumChainLinks - 1)
+				LookAtModifiedClamp = HeadClampValue;
+				InnerBodyClampVal = FRotator(0, 0, 0);
+				UpLookRatio = 1.0f;
+				MultiplierValue = 1.0f;
+			}
+
+			const FName BoneName = AimHelper::GetBoneNameFromCompactIndex(BoneContainer, BoneIndices[ChainLink.TransformIndex]);
+
+			if (bUsePerJointRotationOverrides)
+			{
+				if (const FAimJointRotationOverride* Override = PerJointRotationOverrides.Find(BoneName))
 				{
-					LookAtModifiedClamp = HeadClampValue;
-					UpLookRatio = 1;
-					InnerBodyClampVal = FRotator(0, 0, 0);
-					MultiplierValue = 1;
+					if (Override->bOverrideMultiplier)
+					{
+						MultiplierValue = Override->Multiplier;
+					}
+
+					if (Override->bOverrideUpRotClamp)
+					{
+						UpLookRatio = Override->UpRotClamp;
+					}
+
+					if (Override->bOverrideClamp)
+					{
+						InnerBodyClampVal = Override->Clamp;
+					}
 				}
 			}
 
-			if (LinkIndex == (NumChainLinks - 1) && bIsHeadRotOverride)
+			if (bIsFirstJoint)
 			{
-				OutBoneTransforms[ChainLink.TransformIndex].Transform.SetRotation(CSEffectorTransform.GetRotation() *
-					OutBoneTransforms[ChainLink.TransformIndex].Transform.GetRotation());
+				PelvisRefFullTransform = LookAt_Processor_Helper(
+					OutBoneTransforms[0].Transform,
+					HeadLocation.GetLocation(),
+					TempTargetLoc,
+					LookAtAxis,
+					80.0f,
+					InnerBodyClamp,
+					bIsUseNaturalRotation,
+					1.0f,
+					1.0f);
+
 			}
 			else
 			{
@@ -889,25 +1160,14 @@ namespace AimHelper
 					TempTargetLoc,
 					ActiveAxis,
 					LookAtModifiedClamp,
-					InnerBodyClampVal,
+					InnerBodyClamp,
 					bIsUseNaturalRotation,
-					UpLookRatio,
+					ReachAlpha,
 					MultiplierValue);
 			}
 
-
-			if (bIsAlterPelvis)
-			{
-				if (LinkIndex == 0)
-				{
-					OutBoneTransforms[ChainLink.TransformIndex].Transform.SetLocation(PelvisLocTarget.GetLocation());
-					OutBoneTransforms[ChainLink.TransformIndex].Transform.SetRotation(OriginalRot.Quaternion() * PelvisLocTarget.GetRotation());
-					TempTargetLoc += DiffPelvis;
-				}
-			}
-
-			FTransform OldParent = FTransform();
-			FTransform CurrentParent = FTransform();
+			FTransform OldParent = FTransform::Identity;
+			FTransform CurrentParent = FTransform::Identity;
 
 			if (ChainLink.TransformIndex > 0)
 			{
@@ -922,37 +1182,547 @@ namespace AimHelper
 				(OutBoneTransforms[ChainLink.TransformIndex].Transform * ParentDifference).GetLocation());
 		}
 
-		const FRotator InvertedPelvisRot = FRotator(PelvisRefFullTransform.GetRotation() * PelvisLocation.GetRotation().Inverse());
-		const float Side_Angle = -InvertedPelvisRot.Yaw;
-		float VerticalAngle = FMath::Abs(InvertedPelvisRot.Roll);
-		VerticalAngle = FMath::Clamp(VerticalAngle - VerticalDipTreshold, 0, 1000);
 
-		float VerticalDirectionVal = 1;
-
-		if ((NumChainLinks - 1) > 0)
+		if (bIsEnableDipMultiplier)
 		{
-			VerticalDirectionVal = CSEffectorLocation.Z > OutBoneTransforms[NumChainLinks - 1].Transform.GetLocation().Z ? 1 : -1;
+			const FRotator InvertedPelvisRot = FRotator(PelvisRefFullTransform.GetRotation() * PelvisLocation.GetRotation().Inverse());
+			const float Side_Angle = -InvertedPelvisRot.Yaw;
+			float VerticalAngle = FMath::Abs(InvertedPelvisRot.Roll);
+			VerticalAngle = FMath::Clamp(VerticalAngle - VerticalDipTreshold, 0, 1000);
+
+			float VerticalDirectionVal = 1;
+
+			if ((NumChainLinks - 1) > 0)
+			{
+				VerticalDirectionVal = CSEffectorLocation.Z > OutBoneTransforms[NumChainLinks - 1].Transform.GetLocation().Z ? 1 : -1;
+			}
+
+			const float SideDownVal = FMath::Abs(Side_Angle);
+			const FVector RightDir = FVector::CrossProduct(LookAtAxis.Axis, FVector::UpVector);
+
+			for (int32 LinkIndex = 0; LinkIndex < NumChainLinks; LinkIndex++)
+			{
+				const FCCDIK_Modified_ChainLink& ChainLink = Chain[LinkIndex];
+
+				if (VerticalDirectionVal == 1)
+				{
+					OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * DownwardDipMultiplier * VerticalAngle);
+				}
+				else
+				{
+					OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * InvertedDipMultiplier * VerticalAngle);
+				}
+				OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(RightDir * SideMultiplier * Side_Angle);
+				OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * SideDownMultiplier * SideDownVal);
+			}
+
 		}
 
-		const float SideDownVal = FMath::Abs(Side_Angle);
-		const FVector RightDir = FVector::CrossProduct(LookAtAxis.Axis, FVector::UpVector);
+	}
 
-		for (int32 LinkIndex = 0; LinkIndex < NumChainLinks; LinkIndex++)
+
+	void Evaluate_ConsecutiveBoneRotations_CCD(
+		FComponentSpacePoseContext& Output,
+		const FBoneReference& StartSplineBone,
+		const FBoneReference& EndSplineBone,
+		const FRotator& InBaseAngle,
+		const FTransform& EffectorTransform,
+		const FAxis& LookAtAxis,
+		FRuntimeFloatCurve& InLookBendingCurve,
+		FRuntimeFloatCurve& InLookMultiplierCurve,
+		const bool bIsEnableDipMultiplier,
+		const float VerticalDipTreshold,
+		const float DownwardDipMultiplier,
+		const float InvertedDipMultiplier,
+		const float SideMultiplier,
+		const float SideDownMultiplier,
+		const bool bIsAlterPelvis,
+		const FTransform PelvisLocTarget,
+		const float UpRotClamp,
+		const bool bIsUseNaturalRotation,
+		const bool bIsHeadUseSeparateClamp,
+		const FTransform& HeadTransf,
+		const float Precision,
+		const int32 MaxIteration,
+		const bool bUsePerJointRotationOverrides,
+		const TMap<FName, FAimJointRotationOverride>& PerJointRotationOverrides,
+		const bool bUseTipReferenceBone,
+		const FBoneReference& TipReferenceBone,
+		const FAimRobotArmSettings& RobotArm,
+		const bool bAlignTipYawToTarget,
+		TArray<FBoneTransform>& OutBoneTransforms)
+	{
+		const FBoneContainer& BoneContainer = Output.Pose.GetPose().GetBoneContainer();
+
+		FTransform CSEffectorTransform = EffectorTransform;
+		FAnimationRuntime::ConvertBoneSpaceTransformToCS(
+			Output.AnimInstanceProxy->GetComponentTransform(),
+			Output.Pose,
+			CSEffectorTransform, StartSplineBone.GetCompactPoseIndex(BoneContainer), EBoneControlSpace::BCS_WorldSpace);
+
+		const FVector CSEffectorLocation = CSEffectorTransform.GetLocation();
+
+		FVector TipReferenceOffsetLS = FVector::ZeroVector;
+		if (bUseTipReferenceBone && TipReferenceBone.IsValidToEvaluate(BoneContainer))
 		{
-			const FCCDIK_Modified_ChainLink& ChainLink = Chain[LinkIndex];
+			const FCompactPoseBoneIndex EndIndex = EndSplineBone.GetCompactPoseIndex(BoneContainer);
+			const FCompactPoseBoneIndex RefIndex = TipReferenceBone.GetCompactPoseIndex(BoneContainer);
+			const FTransform EndCS = Output.Pose.GetComponentSpaceTransform(EndIndex);
+			const FTransform RefCS = Output.Pose.GetComponentSpaceTransform(RefIndex);
+			TipReferenceOffsetLS = EndCS.InverseTransformPosition(RefCS.GetLocation());
+		}
 
-			if (VerticalDirectionVal == 1)
+		TArray<FCompactPoseBoneIndex> BoneIndices;
+		{
+			const FCompactPoseBoneIndex RootIndex = StartSplineBone.GetCompactPoseIndex(BoneContainer);
+			FCompactPoseBoneIndex BoneIndex = EndSplineBone.GetCompactPoseIndex(BoneContainer);
+
+			do
 			{
-				OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * DownwardDipMultiplier * VerticalAngle);
-			}
-			else
+				BoneIndices.Insert(BoneIndex, 0);
+				BoneIndex = Output.Pose.GetPose().GetParentBoneIndex(BoneIndex);
+			} while (BoneIndex != RootIndex);
+
+			BoneIndices.Insert(BoneIndex, 0);
+		}
+
+		const int32 NumTransforms = BoneIndices.Num();
+		if (NumTransforms < 2)
+		{
+			return;
+		}
+
+
+		TArray<FTransform> CurrentTransforms;
+		CurrentTransforms.SetNumUninitialized(NumTransforms);
+
+		TArray<FQuat> BaseRotations;
+		BaseRotations.SetNumUninitialized(NumTransforms);
+
+		TArray<float> SegmentLengths;
+		SegmentLengths.SetNumZeroed(NumTransforms);
+
+		float MaximumReach = 0.0f;
+
+		for (int32 i = 0; i < NumTransforms; ++i)
+		{
+			const FCompactPoseBoneIndex BoneIndex = BoneIndices[i];
+			const FTransform BoneCS = Output.Pose.GetComponentSpaceTransform(BoneIndex);
+
+			CurrentTransforms[i] = BoneCS;
+			BaseRotations[i] = BoneCS.GetRotation();
+			OutBoneTransforms[i] = FBoneTransform(BoneIndex, BoneCS);
+
+			if (i > 0)
 			{
-				OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * InvertedDipMultiplier * VerticalAngle);
+				SegmentLengths[i] = FVector::Dist(CurrentTransforms[i - 1].GetLocation(), CurrentTransforms[i].GetLocation());
+				MaximumReach += SegmentLengths[i];
 			}
-			OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(RightDir * SideMultiplier * Side_Angle);
-			OutBoneTransforms[ChainLink.TransformIndex].Transform.AddToTranslation(FVector(0, 0, 1) * SideDownMultiplier * SideDownVal);
+		}
+
+		const FVector RootInitialPos = CurrentTransforms[0].GetLocation();
+		const FVector TipInitialPos = CurrentTransforms.Last().GetLocation();
+
+		// 仮想 tip がある場合のみ、末端ボーン自身も解決対象に含める
+		const bool bHasVirtualTip = (bUseTipReferenceBone && TipReferenceBone.IsValidToEvaluate(BoneContainer));
+		const int32 LastSolvingLinkIndex = bHasVirtualTip ? (NumTransforms - 1) : (NumTransforms - 2);
+
+		// 入力ポーズからの累積回転角(rad)。可動域クランプ用
+		TArray<float> AccumHingeAngles;
+		AccumHingeAngles.SetNumZeroed(NumTransforms);
+
+		const float MaxStepRad = FMath::DegreesToRadians(FMath::Max(RobotArm.MaxAnglePerIterationDeg, 1.0f));
+
+		auto GetVirtualTipPos = [&](const FTransform& EndTransform) -> FVector
+			{
+				if (!bHasVirtualTip)
+				{
+					return EndTransform.GetLocation();
+				}
+
+				return EndTransform.TransformPosition(TipReferenceOffsetLS);
+			};
+
+		auto UpdateChildPositionsFrom = [&](int32 StartIndex)
+			{
+				for (int32 ChildIndex = StartIndex + 1; ChildIndex < NumTransforms; ++ChildIndex)
+				{
+					const FVector ParentPos = CurrentTransforms[ChildIndex - 1].GetLocation();
+					const FVector OldParentPos = Output.Pose.GetComponentSpaceTransform(BoneIndices[ChildIndex - 1]).GetLocation();
+					const FVector OldChildPos = Output.Pose.GetComponentSpaceTransform(BoneIndices[ChildIndex]).GetLocation();
+
+					FVector OldDir = (OldChildPos - OldParentPos).GetSafeNormal();
+					if (OldDir.IsNearlyZero())
+					{
+						OldDir = FVector::ForwardVector;
+					}
+
+					const FVector NewDir = CurrentTransforms[ChildIndex - 1].GetRotation().RotateVector(
+						BaseRotations[ChildIndex - 1].Inverse().RotateVector(OldDir)).GetSafeNormal();
+
+					CurrentTransforms[ChildIndex].SetLocation(ParentPos + NewDir * SegmentLengths[ChildIndex]);
+				}
+			};
+
+		auto ClampDeltaRot = [](FRotator InRot, const FRotator& Limit)
+			{
+				FRotator Out = InRot;
+				const FRotator AbsLimit(FMath::Abs(Limit.Pitch), FMath::Abs(Limit.Yaw), FMath::Abs(Limit.Roll));
+
+				if (AbsLimit.Pitch > 0.f)
+				{
+					Out.Pitch = FMath::ClampAngle(Out.Pitch, -AbsLimit.Pitch, AbsLimit.Pitch);
+				}
+				if (AbsLimit.Yaw > 0.f)
+				{
+					Out.Yaw = FMath::ClampAngle(Out.Yaw, -AbsLimit.Yaw, AbsLimit.Yaw);
+				}
+				if (AbsLimit.Roll > 0.f)
+				{
+					Out.Roll = FMath::ClampAngle(Out.Roll, -AbsLimit.Roll, AbsLimit.Roll);
+				}
+
+				return Out;
+			};
+
+		// ヒンジ軸まわりの符号付き角度を求める
+		auto SolveHingeAngle = [](const FVector& JointPos, const FVector& TipPos, const FVector& TargetPos, const FVector& AxisCS) -> float
+			{
+				const FVector ToTipFlat = FVector::VectorPlaneProject(TipPos - JointPos, AxisCS).GetSafeNormal();
+				const FVector ToTargetFlat = FVector::VectorPlaneProject(TargetPos - JointPos, AxisCS).GetSafeNormal();
+
+				if (ToTipFlat.IsNearlyZero() || ToTargetFlat.IsNearlyZero())
+				{
+					return 0.0f;
+				}
+
+				return FMath::Atan2(
+					FVector::DotProduct(FVector::CrossProduct(ToTipFlat, ToTargetFlat), AxisCS),
+					FVector::DotProduct(ToTipFlat, ToTargetFlat));
+			};
+
+		// 親の回転を子孫へ剛体伝播させる
+		auto PropagateToChildren = [&](int32 LinkIndex, const FVector& PivotPos, const FQuat& Delta)
+			{
+				for (int32 ChildIndex = LinkIndex + 1; ChildIndex < NumTransforms; ++ChildIndex)
+				{
+					FTransform& Child = CurrentTransforms[ChildIndex];
+					Child.SetLocation(PivotPos + Delta.RotateVector(Child.GetLocation() - PivotPos));
+					Child.SetRotation((Delta * Child.GetRotation()).GetNormalized());
+				}
+			};
+
+		const float PrecisionSq = FMath::Square(FMath::Max(Precision, 0.001f));
+
+		for (int32 Iter = 0; Iter < MaxIteration; ++Iter)
+		{
+			const FVector CurrentTipPos = GetVirtualTipPos(CurrentTransforms.Last());
+			if (FVector::DistSquared(CurrentTipPos, CSEffectorLocation) <= PrecisionSq)
+			{
+				break;
+			}
+
+			for (int32 LinkIndex = LastSolvingLinkIndex; LinkIndex >= 0; --LinkIndex)
+			{
+				const bool bIsLastJoint = (LinkIndex == LastSolvingLinkIndex);
+				const bool bIsIntermediateJoint = (LinkIndex > 0 && LinkIndex < LastSolvingLinkIndex);
+
+				FVector JointPos = CurrentTransforms[LinkIndex].GetLocation();
+				FVector TipPos = GetVirtualTipPos(CurrentTransforms.Last());
+				FVector ToTip = (TipPos - JointPos).GetSafeNormal();
+
+				if (ToTip.IsNearlyZero())
+				{
+					continue;
+				}
+
+				FVector TargetPos = CSEffectorLocation;
+				// 四足の頭用特別扱い。RobotArm では常に Effector を狙う
+				if (bIsLastJoint && !RobotArm.bEnable)
+				{
+					TargetPos = HeadTransf.GetLocation();
+				}
+
+				FVector ToTarget = (TargetPos - JointPos).GetSafeNormal();
+				if (ToTarget.IsNearlyZero())
+				{
+					continue;
+				}
+
+				const FName BoneName = AimHelper::GetBoneNameFromCompactIndex(BoneContainer, BoneIndices[LinkIndex]);
+				const FAimJointRotationOverride* Override = bUsePerJointRotationOverrides ? PerJointRotationOverrides.Find(BoneName) : nullptr;
+
+				float NewValue = InLookBendingCurve.GetRichCurve()->Eval((NumTransforms > 1) ? (float)LinkIndex / (float)(NumTransforms - 1) : 1.0f);
+				float MultiplierValue = InLookMultiplierCurve.GetRichCurve()->Eval((NumTransforms > 1) ? (float)LinkIndex / (float)(NumTransforms - 1) : 1.0f);
+
+				FQuat WeightedDelta = FQuat::Identity;
+				FVector PivotPos = JointPos;
+
+
+				if (RobotArm.bEnable)
+				{
+					if (Override && Override->bLockJoint)
+					{
+						continue;
+					}
+
+					if (Override && Override->bOverrideMultiplier)
+					{
+						MultiplierValue = Override->Multiplier;
+					}
+
+					const FVector HingeAxisLS = (Override && Override->bOverrideHingeAxis)
+						? Override->HingeAxisLS
+						: RobotArm.DefaultHingeAxisLS;
+
+					const FVector HingeAxisCS = CurrentTransforms[LinkIndex].GetRotation().RotateVector(HingeAxisLS).GetSafeNormal();
+
+					if (HingeAxisCS.IsNearlyZero())
+					{
+						continue;
+					}
+
+					float Step = SolveHingeAngle(JointPos, TipPos, TargetPos, HingeAxisCS);
+					Step *= FMath::Clamp(MultiplierValue, 0.0f, 1.0f);
+					Step = FMath::Clamp(Step, -MaxStepRad, MaxStepRad);
+
+					if (Override && Override->bUseHingeAngleLimit)
+					{
+						const float MinRad = FMath::DegreesToRadians(FMath::Min(Override->HingeAngleLimit.X, Override->HingeAngleLimit.Y));
+						const float MaxRad = FMath::DegreesToRadians(FMath::Max(Override->HingeAngleLimit.X, Override->HingeAngleLimit.Y));
+
+						const float NewAccum = FMath::Clamp(AccumHingeAngles[LinkIndex] + Step, MinRad, MaxRad);
+						Step = NewAccum - AccumHingeAngles[LinkIndex];
+						AccumHingeAngles[LinkIndex] = NewAccum;
+					}
+					else
+					{
+						AccumHingeAngles[LinkIndex] += Step;
+					}
+
+					if (FMath::IsNearlyZero(Step, 1.e-5f))
+					{
+						continue;
+					}
+
+					WeightedDelta = FQuat(HingeAxisCS, Step);
+				}
+				else
+				{
+
+					const float DotToTarget = FVector::DotProduct(ToTip, ToTarget);
+
+					FQuat DeltaQuat = FQuat::Identity;
+					if (DotToTarget < -0.98f)
+					{
+						FVector StableAxis = FVector::CrossProduct(LookAtAxis.Axis.GetSafeNormal(), ToTip);
+						if (StableAxis.IsNearlyZero())
+						{
+							StableAxis = FVector::UpVector;
+						}
+						StableAxis.Normalize();
+						DeltaQuat = FQuat(StableAxis, PI);
+					}
+					else
+					{
+						DeltaQuat = FQuat::FindBetweenNormals(ToTip, ToTarget);
+					}
+
+					// not use InBaseAngle
+					FRotator JointInnerClamp = InBaseAngle;
+					float UpLookRatio = UpRotClamp;
+
+
+					if (bIsHeadUseSeparateClamp && bIsLastJoint)
+					{
+						JointInnerClamp = FRotator::ZeroRotator;
+						MultiplierValue = 1.0f;
+						UpLookRatio = 1.0f;
+					}
+
+					if (Override)
+					{
+						if (Override->bOverrideMultiplier)
+						{
+							MultiplierValue = Override->Multiplier;
+						}
+
+						if (Override->bOverrideUpRotClamp)
+						{
+							UpLookRatio = Override->UpRotClamp;
+						}
+
+						if (Override->bOverrideClamp)
+						{
+							JointInnerClamp = Override->Clamp;
+						}
+
+					}
+
+					// MultiplierとClampを適用したIKが求める回転を計算
+					FRotator DeltaRot = DeltaQuat.Rotator();
+					DeltaRot.Pitch *= UpLookRatio;
+					DeltaRot = ClampDeltaRot(DeltaRot, JointInnerClamp);
+
+					WeightedDelta = FQuat::Slerp(
+						FQuat::Identity,
+						DeltaRot.Quaternion(),
+						FMath::Clamp(MultiplierValue, 0.0f, 1.0f)).GetNormalized();
+				}
+
+
+				CurrentTransforms[LinkIndex].SetRotation((WeightedDelta * CurrentTransforms[LinkIndex].GetRotation()).GetNormalized());
+				if (RobotArm.bEnable)
+				{
+					PropagateToChildren(LinkIndex, PivotPos, WeightedDelta);
+				}
+				else
+				{
+					UpdateChildPositionsFrom(LinkIndex);
+				}
+
+			}
+
+		}
+
+
+		if (bIsEnableDipMultiplier && !RobotArm.bEnable)
+		{
+			const FRotator PelvisRot = CurrentTransforms[0].Rotator();
+			const float SideAngle = -PelvisRot.Yaw;
+			float VerticalAngle = FMath::Abs(PelvisRot.Roll);
+			VerticalAngle = FMath::Clamp(VerticalAngle - VerticalDipTreshold, 0.0f, 1000.0f);
+
+			const float VerticalDirectionVal = (CSEffectorLocation.Z > CurrentTransforms.Last().GetLocation().Z) ? 1.0f : -1.0f;
+
+			const float SideDownVal = FMath::Abs(SideAngle);
+			const FVector RightDir = FVector::CrossProduct(LookAtAxis.Axis, FVector::UpVector);
+
+			for (int32 i = 0; i < NumTransforms; ++i)
+			{
+				if (VerticalDirectionVal > 0.0f)
+				{
+					CurrentTransforms[i].AddToTranslation(FVector::UpVector * DownwardDipMultiplier * VerticalAngle);
+				}
+				else
+				{
+					CurrentTransforms[i].AddToTranslation(FVector::UpVector * InvertedDipMultiplier * VerticalAngle);
+				}
+
+				CurrentTransforms[i].AddToTranslation(RightDir * SideMultiplier * SideAngle);
+				CurrentTransforms[i].AddToTranslation(FVector::UpVector * SideDownMultiplier * SideDownVal);
+			}
+		}
+
+		// CCD後、EndSplineBone 自体の yaw を Effector に合わせる。
+		// CCDは基本的に tip position を近づける処理なので、
+		// end bone の look/forward axis が target の yaw を向く保証をここで明示的に作る。
+		if (bAlignTipYawToTarget && !RobotArm.bEnable)
+		{
+			const int32 EndIndex = NumTransforms - 1;
+			FTransform& EndTransform = CurrentTransforms[EndIndex];
+
+			FRotator EndClamp = FRotator::ZeroRotator;
+			float EndMultiplier = 1.0f;
+
+			const FName EndBoneName = AimHelper::GetBoneNameFromCompactIndex(BoneContainer, BoneIndices[EndIndex]);
+
+			if (bUsePerJointRotationOverrides)
+			{
+				if (const FAimJointRotationOverride* Override = PerJointRotationOverrides.Find(EndBoneName))
+				{
+					if (Override->bOverrideClamp)
+					{
+						EndClamp = Override->Clamp;
+					}
+
+					if (Override->bOverrideMultiplier)
+					{
+						EndMultiplier = Override->Multiplier;
+					}
+				}
+				else
+				{
+					UE_LOG(LogQuadrupedIK, Warning, TEXT("PerJointRotationOverrides not found EndBoneName : %s"), *EndBoneName.ToString());
+				}
+			}
+
+			const FVector EndLocation = EndTransform.GetLocation();
+			const FVector ToEffector = (CSEffectorLocation - EndLocation).GetSafeNormal();
+
+			if (!ToEffector.IsNearlyZero())
+			{
+				FVector CurrentAimAxisCS = LookAtAxis.GetTransformedAxis(EndTransform).GetSafeNormal();
+				if (CurrentAimAxisCS.IsNearlyZero())
+				{
+					CurrentAimAxisCS = EndTransform.GetRotation().RotateVector(FVector::ForwardVector).GetSafeNormal();
+				}
+
+				FVector UpAxisCS = FVector::UpVector;
+				if (CurrentTransforms.IsValidIndex(0))
+				{
+					const FVector RootUpCS = CurrentTransforms[0].GetRotation().RotateVector(FVector::UpVector).GetSafeNormal();
+					if (!RootUpCS.IsNearlyZero())
+					{
+						UpAxisCS = RootUpCS;
+					}
+				}
+
+				const FVector CurrentAimYawCS = FVector::VectorPlaneProject(CurrentAimAxisCS, UpAxisCS).GetSafeNormal();
+				const FVector TargetYawCS = FVector::VectorPlaneProject(ToEffector, UpAxisCS).GetSafeNormal();
+
+				if (!CurrentAimYawCS.IsNearlyZero() && !TargetYawCS.IsNearlyZero())
+				{
+					FQuat YawDeltaQuat = FQuat::Identity;
+
+					const float DotYaw = FVector::DotProduct(CurrentAimYawCS, TargetYawCS);
+					if (DotYaw < -0.98f)
+					{
+						YawDeltaQuat = FQuat(UpAxisCS, PI);
+					}
+					else
+					{
+						YawDeltaQuat = FQuat::FindBetweenNormals(CurrentAimYawCS, TargetYawCS);
+					}
+
+					FRotator DeltaRot = YawDeltaQuat.Rotator();
+
+					// 末端の override clamp をここで適用
+					if (EndClamp.Yaw != 0.0f)
+					{
+						const float AbsYaw = FMath::Abs(EndClamp.Yaw);
+						DeltaRot.Yaw = FMath::ClampAngle(DeltaRot.Yaw, -AbsYaw, AbsYaw);
+					}
+
+					if (EndClamp.Pitch != 0.0f)
+					{
+						const float AbsPitch = FMath::Abs(EndClamp.Pitch);
+						DeltaRot.Pitch = FMath::ClampAngle(DeltaRot.Pitch, -AbsPitch, AbsPitch);
+					}
+
+					if (EndClamp.Roll != 0.0f)
+					{
+						const float AbsRoll = FMath::Abs(EndClamp.Roll);
+						DeltaRot.Roll = FMath::ClampAngle(DeltaRot.Roll, -AbsRoll, AbsRoll);
+					}
+
+					const FQuat WeightedDelta = FQuat::Slerp(
+						FQuat::Identity,
+						DeltaRot.Quaternion(),
+						FMath::Clamp(EndMultiplier, 0.0f, 1.0f)).GetNormalized();
+
+					EndTransform.SetRotation((WeightedDelta * EndTransform.GetRotation()).GetNormalized());
+				}
+			}
+		}
+
+
+		for (int32 i = 0; i < NumTransforms; ++i)
+		{
+			OutBoneTransforms[i] = FBoneTransform(BoneIndices[i], CurrentTransforms[i]);
 		}
 	}
+
 
 
 	/// <summary>
@@ -991,9 +1761,9 @@ namespace AimHelper
 	{
 
 		const FBoneContainer& BoneContainer = Output.Pose.GetPose().GetBoneContainer();
-		const FCompactPoseBoneIndex& CachedUpperLimbIndex = OutArmSolverWorkArea.ResultShoulder.BoneIndex; 
-		const FCompactPoseBoneIndex& CachedLowerLimbIndex = OutArmSolverWorkArea.ResultElbow.BoneIndex; 
-		const FCompactPoseBoneIndex& CachedFeetPoseIndex = OutArmSolverWorkArea.ResultHand.BoneIndex; 
+		const FCompactPoseBoneIndex& CachedUpperLimbIndex = OutArmSolverWorkArea.ResultShoulder.BoneIndex;
+		const FCompactPoseBoneIndex& CachedLowerLimbIndex = OutArmSolverWorkArea.ResultElbow.BoneIndex;
+		const FCompactPoseBoneIndex& CachedFeetPoseIndex = OutArmSolverWorkArea.ResultHand.BoneIndex;
 
 		FCompactPoseBoneIndex CachedClavicleIndex = FCompactPoseBoneIndex(0);
 
@@ -1005,7 +1775,7 @@ namespace AimHelper
 		if (OutArmSolverWorkArea.bHasClavicle && bIsSeparateArmsLogicUsed)
 		{
 			bIsShoulderTwistAvailable = true;
-			CachedClavicleIndex = OutArmSolverWorkArea.ResultClavicle.BoneIndex; 
+			CachedClavicleIndex = OutArmSolverWorkArea.ResultClavicle.BoneIndex;
 
 			ClavicleTransform = Output.Pose.GetComponentSpaceTransform(CachedClavicleIndex) * TransformOffset;
 			const FTransform OrigClavicleTransform = ClavicleTransform;
@@ -1060,7 +1830,7 @@ namespace AimHelper
 			HandData.LastClavicleRotation.Roll = ClavicleRotDifference.Roll;
 			ClavicleTransform.SetRotation(HandData.LastClavicleRotation.Quaternion() * ClavicleTransform.GetRotation());
 			ClavicleOffset = Output.Pose.GetComponentSpaceTransform(CachedClavicleIndex).Inverse() * ClavicleTransform;
-	
+
 			OutArmSolverWorkArea.ResultClavicle.Transform = ClavicleTransform;
 			OutArmSolverWorkArea.OrigClavicle.Transform = OrigClavicleTransform;
 		}
@@ -1250,7 +2020,10 @@ namespace AimHelper
 					EndBoneCSTransform_Always.GetLocation(),
 					Far_Target, AxisInstance,
 					HandClampValue,
-					FRotator::ZeroRotator, true, 1.0f, 1.0f);
+					FRotator::ZeroRotator,
+					true,
+					1.0f,
+					1.0f);
 
 				OutArmSolverWorkArea.ResultHand.Transform = EndBoneCSTransformAccurate;
 				OutArmSolverWorkArea.OrigHand.Transform = OrigEndBoneCSTransform;
@@ -1386,26 +2159,32 @@ namespace AimHelper
 		OutArmSolverWorkArea.OrigElbow.Transform = OrigLowerLimbCSTransform;
 	}
 
+
 }
 
 FAnimNode_CustomAimSolver::FAnimNode_CustomAimSolver()
 {
 	LerpedLookatLocation = FVector::ZeroVector;
 	FRichCurve* Look_Bending_CurveData = LookBendingCurve.GetRichCurve();
-	Look_Bending_CurveData->AddKey(0.f, 0.025f);
+	Look_Bending_CurveData->AddKey(0.f, 0.02f);
+	Look_Bending_CurveData->AddKey(0.5f, 0.5f);
 	Look_Bending_CurveData->AddKey(1.f, 1.f);
 
 	FRichCurve* Look_Multiplier_CurveData = LookMultiplierCurve.GetRichCurve();
-	Look_Multiplier_CurveData->AddKey(0.f, 1.0f);
+	Look_Multiplier_CurveData->AddKey(0.f, 0.02f);
+	Look_Multiplier_CurveData->AddKey(0.5f, 0.5f);
 	Look_Multiplier_CurveData->AddKey(1.f, 1.0f);
 
+	FRichCurve* Distance_Alpha_CurveData = DistanceAlphaCurve.GetRichCurve();
+	Distance_Alpha_CurveData->AddKey(0.0f, 0.02f);
+	Distance_Alpha_CurveData->AddKey(1.0f, 1500.0f);
 
 #if WITH_EDITOR
 	if (DebugHandTransforms.IsEmpty())
 	{
 		ResizeDebugLocations(2);
 	}
-	DebugLookAtTransform.SetLocation(FVector(0, 200, 100));
+	DebugLookAtTransform.SetLocation(FVector(200.0f, 0.0f, 100.0f));
 #endif
 
 }
@@ -1423,19 +2202,73 @@ void FAnimNode_CustomAimSolver::Initialize_AnyThread(const FAnimationInitializeC
 	}
 }
 
-
 void FAnimNode_CustomAimSolver::ConditionalDebugDraw(FPrimitiveDrawInterface* PDI, USkeletalMeshComponent* PreviewSkelMeshComp) const
 {
 
 #if WITH_EDITORONLY_DATA
-	if (PreviewSkelMeshComp && PreviewSkelMeshComp->GetWorld())
+
+	const bool bIsValid = (PreviewSkelMeshComp && PreviewSkelMeshComp->GetWorld());
+
+	if (!bIsValid)
 	{
+		return;
+	}
+
+	if (bDisplayLineTrace)
+	{
+		const float CurOwnerScale = ComponentScale;
+
+		const FTransform& ComponentToWorld = PreviewSkelMeshComp->GetComponentTransform();
+		FVector CharacterUpWS = ComponentToWorld.GetUnitAxis(EAxis::Z);
+		FQuat DebugRotation = FRotationMatrix::MakeFromZ(CharacterUpWS).ToQuat();
+
 		for (int32 Index = 0; Index < TraceStartList.Num(); Index++)
 		{
-			DrawDebugLine(PreviewSkelMeshComp->GetWorld(), TraceStartList[Index], TraceEndList[Index], FColor::Red, false, 0.1f);
+			const float SelectedRadius = (TraceRadiusList[Index] > 0.0f) ? TraceRadiusList[Index] : Trace_Radius;
+			const float ScaledTraceRadius = SelectedRadius * CurOwnerScale;
+
+			const FVector& Start = TraceStartList[Index];
+			const FVector& End = TraceEndList[Index];
+			const FVector& Center = (Start + End) * 0.5f;
+			const FVector& TraceVector = Start - End;
+			const float HalfHeight = TraceVector.Size() * 0.5f;
+
+			switch (RaycastTraceType)
+			{
+			case EIKRaycastType::LineTrace:
+			{
+				DrawDebugLine(PreviewSkelMeshComp->GetWorld(), Start, End, FColor::Red, false, 0.1f);
+			}
+			break;
+
+			case EIKRaycastType::SphereTrace:
+			{
+				DrawDebugCapsule(PreviewSkelMeshComp->GetWorld(), Center, HalfHeight, ScaledTraceRadius, DebugRotation, FColor::Red, false, 0.1f);
+			}
+			break;
+
+			case EIKRaycastType::BoxTrace:
+			{
+				const FVector& BoxExtent = FVector(ScaledTraceRadius, ScaledTraceRadius, HalfHeight);
+				DrawDebugBox(PreviewSkelMeshComp->GetWorld(), Center, BoxExtent, DebugRotation, FColor::Red, false, 0.1f);
+			}
+			break;
+			}
 		}
 	}
+
+
+	//if (bDisplayHorizontalAngleDebug)
+	//{
+	//	const UWorld* PreviewWorld = PreviewSkelMeshComp->GetWorld();
+	//	if (PreviewWorld && !PreviewWorld->IsGameWorld())
+	//	{
+	//		DrawHorizontalAngleDebugArc(PreviewSkelMeshComp, PDI, nullptr);
+	//	}
+	//}
+
 #endif
+
 
 }
 
@@ -1451,7 +2284,10 @@ void FAnimNode_CustomAimSolver::UpdateInternal(const FAnimationUpdateContext& Co
 	CachedDeltaSeconds = Context.GetDeltaTime();
 
 	const FTransform& ComponentToWorld = Context.AnimInstanceProxy->GetComponentTransform();
-	const bool bIsTurnOnSolver = (bIsAdaptiveTerrainTail) ? bIsEnableSolver && AimHitResult.bBlockingHit : bIsEnableSolver;
+	USkeletalMeshComponent* SK = Context.AnimInstanceProxy->GetSkelMeshComponent();
+	AActor* Owner = Context.AnimInstanceProxy->GetSkelMeshComponent()->GetOwner();
+
+	const bool bIsTurnOnSolver = (bIsAdaptiveTerrain) ? bIsEnableSolver && AimHitResult.bBlockingHit : bIsEnableSolver;
 
 	const float AlphaVal = (bIsTurnOnSolver) ? 1.0f : 0.f;
 
@@ -1459,113 +2295,115 @@ void FAnimNode_CustomAimSolver::UpdateInternal(const FAnimationUpdateContext& Co
 	HeadActualAlpha = FMath::FInterpTo(HeadActualAlpha, AlphaVal, Factor, InterpolationSpeed);
 
 
-	ComponentScale = ComponentToWorld.GetScale3D().Z;
-	FVector TTS_Ref_Pos = (DebugLookAtTransform * ComponentToWorld).GetLocation();
-	FVector TTS_Ref_Down = TTS_Ref_Pos;
-
-	if (bIsAdaptiveTerrainTail)
+	if (bIsAllowSmoothingEnableSolver)
 	{
-		ApplyLineTrace(
-			Context,
-			TTS_Ref_Pos + FVector(0, 0, TraceUpHeight) * ComponentScale,
-			TTS_Ref_Down + FVector(0, 0, -TraceDownHeight) * ComponentScale,
-			AimHitResult, FLinearColor::Blue, true);
-	}
-
-	FTransform ZeroedHit = DebugLookAtTransform;
-	ZeroedHit.SetLocation(FVector(DebugLookAtTransform.GetLocation().X, DebugLookAtTransform.GetLocation().Y, 0));
-	ZeroedHit.SetLocation((ZeroedHit * ComponentToWorld).GetLocation());
-	HitResultHeight = (TTS_Ref_Pos - ZeroedHit.GetLocation()).Size();
-}
-
-
-void FAnimNode_CustomAimSolver::EvaluateSkeletalControl_AnyThread(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
-{
-	SCOPE_CYCLE_COUNTER(STAT_CustomAimSolver_EvalSKelControl);
-
-	check(OutBoneTransforms.Num() == 0);
-
-	FABRIK_BodySystem(Output.Pose, Output, OutBoneTransforms);
-	
-	for (int32 i = 0; i < HeadTransforms.Num(); i++)
-	{
-		OutBoneTransforms.Add(HeadTransforms[i]);
-	}
-
-	for (int32 i = 0; i < ArmSolverWorkArea.Num(); i++)
-	{
-		FArmSolverWorkArea& WorkData = ArmSolverWorkArea[i];
-
-		if (!WorkData.bIsInitialized)
+		if (bIsPrevEnableSolver && !bIsEnableSolver)
 		{
-			WorkData.CurrentClavicle = WorkData.ResultClavicle.Transform;
-			WorkData.CurrentShoulder = WorkData.ResultShoulder.Transform;
-			WorkData.CurrentElbow = WorkData.ResultElbow.Transform;
-			WorkData.CurrentHand = WorkData.ResultHand.Transform;
-			WorkData.bIsInitialized = true;
+			// on -> off
+			bSolverFadeOutOnly = true;
+		}
+		else if (bIsEnableSolver)
+		{
+			// off -> on
+			bSolverFadeOutOnly = false;
 		}
 
-		const float Factor = (1.0f - FMath::Exp(-SmoothFactor * CachedDeltaSeconds));
-
-		if (bIsEnableHandInterpolation)
-		{
-			WorkData.CurrentHand.SetLocation(FMath::VInterpTo(WorkData.CurrentHand.GetLocation(),
-				WorkData.ResultHand.Transform.GetLocation(), Factor, HandInterpolationSpeed));
-			WorkData.CurrentHand.SetRotation(FMath::QInterpTo(WorkData.CurrentHand.GetRotation(),
-				WorkData.ResultHand.Transform.GetRotation(), Factor, HandInterpolationSpeed));
-
-			if (WorkData.bHasClavicle)
-			{
-				WorkData.CurrentClavicle.SetLocation(FMath::VInterpTo(WorkData.CurrentClavicle.GetLocation(),
-					WorkData.ResultClavicle.Transform.GetLocation(), Factor, HandInterpolationSpeed));
-				WorkData.CurrentClavicle.SetRotation(FMath::QInterpTo(WorkData.CurrentClavicle.GetRotation(),
-					WorkData.ResultClavicle.Transform.GetRotation(), Factor, HandInterpolationSpeed));
-			}
-
-			WorkData.CurrentShoulder.SetLocation(FMath::VInterpTo(WorkData.CurrentShoulder.GetLocation(),
-				WorkData.ResultShoulder.Transform.GetLocation(), Factor, HandInterpolationSpeed));
-			WorkData.CurrentShoulder.SetRotation(FMath::QInterpTo(WorkData.CurrentShoulder.GetRotation(),
-				WorkData.ResultShoulder.Transform.GetRotation(), Factor, HandInterpolationSpeed));
-
-			WorkData.CurrentElbow.SetLocation(FMath::VInterpTo(WorkData.CurrentElbow.GetLocation(),
-				WorkData.ResultElbow.Transform.GetLocation(), Factor, HandInterpolationSpeed));
-			WorkData.CurrentElbow.SetRotation(FMath::QInterpTo(WorkData.CurrentElbow.GetRotation(),
-				WorkData.ResultElbow.Transform.GetRotation(), Factor, HandInterpolationSpeed));
-		}
-		else
-		{
-			WorkData.CurrentClavicle = WorkData.ResultClavicle.Transform;
-			WorkData.CurrentShoulder = WorkData.ResultShoulder.Transform;
-			WorkData.CurrentElbow = WorkData.ResultElbow.Transform;
-			WorkData.CurrentHand = WorkData.ResultHand.Transform;
-		}
-
-		if (WorkData.bHasClavicle)
-		{
-			OutBoneTransforms.Add(FBoneTransform(WorkData.ResultClavicle.BoneIndex, WorkData.CurrentClavicle));
-		}
-
-		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultShoulder.BoneIndex, WorkData.CurrentShoulder));
-		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultElbow.BoneIndex, WorkData.CurrentElbow));
-		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultHand.BoneIndex, WorkData.CurrentHand));
+		bIsPrevEnableSolver = bIsEnableSolver;
 	}
-
-	
-	for (int32 i = 0; i < OutBoneTransforms.Num(); i++)
+	else
 	{
-		const FTransform& AnimBoneTransform = Output.Pose.GetComponentSpaceTransform(OutBoneTransforms[i].BoneIndex);
-
-		OutBoneTransforms[i].Transform = UKismetMathLibrary::TLerp(
-			AnimBoneTransform,
-			OutBoneTransforms[i].Transform, HeadActualAlpha);
+		bSolverFadeOutOnly = false;
+		bIsPrevEnableSolver = bIsEnableSolver;
 	}
+
+	ComponentScale = IsValid(Owner) ? Owner->GetActorScale3D().Z : ComponentToWorld.GetScale3D().Z;
+	ComponentScale = FMath::Max(ComponentScale, 0.01f);
+
+
+	FVector ClampOriginWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+	if (bUseRootAsClampOrigin)
+	{
+		ClampOriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+	}
+
+	const FVector ClampForwardWS = ComponentToWorld.TransformVector(ForwardDirectionVector).GetSafeNormal();
+	const FVector RawTargetWS = LookAtLocation.GetLocation();
+
+	const float RawHorizontalDeg = AimHelper::GetSignedHorizontalAngleDeg(
+		ClampForwardWS,
+		ClampOriginWS,
+		RawTargetWS);
+
+	FVector ClampedTargetWS = FVector::ZeroVector;
+
+	if (bIsNotLimitMethod)
+	{
+		ClampedTargetWS = AimHelper::ClampRotateVector_NoLimit(
+			RawTargetWS,
+			ClampForwardWS,
+			ClampOriginWS,
+			VerticalRangeAngles.X,
+			VerticalRangeAngles.Y,
+			HorizontalRangeAngles.X,
+			HorizontalRangeAngles.Y,
+			bIsUseNaturalMethod);
+	}
+	else
+	{
+		ClampedTargetWS = AimHelper::ClampRotateVector(
+			RawTargetWS,
+			ClampForwardWS,
+			ClampOriginWS,
+			VerticalRangeAngles.X,
+			VerticalRangeAngles.Y,
+			HorizontalRangeAngles.X,
+			HorizontalRangeAngles.Y,
+			bIsUseNaturalMethod);
+	}
+
+
+	//#if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
+#if false
+	if (AimAnimationCommand::CVarDebugAimIK.GetValueOnAnyThread() > 0)
+	{
+		bDisplayHorizontalAngleDebug = true;
+	}
+	else
+	{
+		bDisplayHorizontalAngleDebug = false;
+	}
+
+	if (bDisplayHorizontalAngleDebug)
+	{
+		const FVector RootOriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+
+		DebugClampOriginWS = RootOriginWS;
+		DebugClampForwardWS = ClampForwardWS;
+		DebugClampRawTargetWS = RawTargetWS;
+		DebugClampResultTargetWS = ClampedTargetWS;
+		DebugHorizontalRawDeg = RawHorizontalDeg;
+		DebugHorizontalClampedDeg = AimHelper::GetSignedHorizontalAngleDeg(
+			ClampForwardWS,
+			ClampOriginWS,
+			ClampedTargetWS);
+
+		DebugHorizontalClampMinDeg = HorizontalRangeAngles.X;
+		DebugHorizontalClampMaxDeg = HorizontalRangeAngles.Y;
+
+		if (SK && SK->GetWorld() && SK->GetWorld()->IsGameWorld())
+		{
+			DrawHorizontalAngleDebugArc(SK, nullptr, Context.AnimInstanceProxy);
+		}
+	}
+#endif
+
 
 }
 
 bool FAnimNode_CustomAimSolver::IsValidToEvaluate(const USkeleton* Skeleton, const FBoneContainer& RequiredBones)
 {
 
-	if (!bIsEnableSolver)
+	if (!bIsEnableSolver && !bIsAllowSmoothingEnableSolver)
 	{
 		return false;
 	}
@@ -1578,7 +2416,7 @@ bool FAnimNode_CustomAimSolver::IsValidToEvaluate(const USkeleton* Skeleton, con
 		// dont must need to setting ClavicleBone
 		// !ArmData.ClavicleBone.IsValidToEvaluate(RequiredBones) || 
 		if (!ArmData.ShoulderBone.IsValidToEvaluate(RequiredBones) ||
-			!ArmData.ElbowBone.IsValidToEvaluate(RequiredBones) || 
+			!ArmData.ElbowBone.IsValidToEvaluate(RequiredBones) ||
 			!ArmData.HandBone.IsValidToEvaluate(RequiredBones))
 		{
 			return false;
@@ -1586,9 +2424,9 @@ bool FAnimNode_CustomAimSolver::IsValidToEvaluate(const USkeleton* Skeleton, con
 	}
 
 
-	return (EndSplineBone.IsValidToEvaluate(RequiredBones) && 
-		StartSplineBone.IsValidToEvaluate(RequiredBones) && 
-		RequiredBones.IsValid() && 
+	return (EndSplineBone.IsValidToEvaluate(RequiredBones) &&
+		StartSplineBone.IsValidToEvaluate(RequiredBones) &&
+		RequiredBones.IsValid() &&
 		(RequiredBones.BoneIsChildOf(EndSplineBone.BoneIndex, StartSplineBone.BoneIndex)));
 }
 
@@ -1597,6 +2435,8 @@ void FAnimNode_CustomAimSolver::InitializeBoneReferences(const FBoneContainer& R
 
 	EndSplineBone.Initialize(RequiredBones);
 	StartSplineBone.Initialize(RequiredBones);
+
+	TipReferenceBone.Initialize(RequiredBones);
 
 	CombinedIndices.Empty();
 
@@ -1675,8 +2515,116 @@ void FAnimNode_CustomAimSolver::InitializeBoneReferences(const FBoneContainer& R
 }
 
 
-void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBases, FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
+void FAnimNode_CustomAimSolver::EvaluateSkeletalControl_AnyThread(FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
 {
+	SCOPE_CYCLE_COUNTER(STAT_CustomAimSolver_EvalSKelControl);
+
+	check(OutBoneTransforms.Num() == 0);
+
+	SolveAimIKSystem(Output.Pose, Output, OutBoneTransforms);
+
+	for (int32 i = 0; i < HeadTransforms.Num(); i++)
+	{
+		OutBoneTransforms.Add(HeadTransforms[i]);
+	}
+
+	for (int32 i = 0; i < ArmSolverWorkArea.Num(); i++)
+	{
+		FArmSolverWorkArea& WorkData = ArmSolverWorkArea[i];
+
+		if (!WorkData.bIsInitialized)
+		{
+			WorkData.CurrentClavicle = WorkData.ResultClavicle.Transform;
+			WorkData.CurrentShoulder = WorkData.ResultShoulder.Transform;
+			WorkData.CurrentElbow = WorkData.ResultElbow.Transform;
+			WorkData.CurrentHand = WorkData.ResultHand.Transform;
+			WorkData.bIsInitialized = true;
+		}
+
+		const float Factor = (1.0f - FMath::Exp(-SmoothFactor * CachedDeltaSeconds));
+
+		if (bIsEnableHandInterpolation)
+		{
+			WorkData.CurrentHand.SetLocation(FMath::VInterpTo(WorkData.CurrentHand.GetLocation(), WorkData.ResultHand.Transform.GetLocation(), Factor, HandInterpolationSpeed));
+			WorkData.CurrentHand.SetRotation(FMath::QInterpTo(WorkData.CurrentHand.GetRotation(), WorkData.ResultHand.Transform.GetRotation(), Factor, HandInterpolationSpeed));
+
+			if (WorkData.bHasClavicle)
+			{
+				WorkData.CurrentClavicle.SetLocation(FMath::VInterpTo(WorkData.CurrentClavicle.GetLocation(), WorkData.ResultClavicle.Transform.GetLocation(), Factor, HandInterpolationSpeed));
+				WorkData.CurrentClavicle.SetRotation(FMath::QInterpTo(WorkData.CurrentClavicle.GetRotation(), WorkData.ResultClavicle.Transform.GetRotation(), Factor, HandInterpolationSpeed));
+			}
+
+			WorkData.CurrentShoulder.SetLocation(FMath::VInterpTo(WorkData.CurrentShoulder.GetLocation(), WorkData.ResultShoulder.Transform.GetLocation(), Factor, HandInterpolationSpeed));
+			WorkData.CurrentShoulder.SetRotation(FMath::QInterpTo(WorkData.CurrentShoulder.GetRotation(), WorkData.ResultShoulder.Transform.GetRotation(), Factor, HandInterpolationSpeed));
+
+			WorkData.CurrentElbow.SetLocation(FMath::VInterpTo(WorkData.CurrentElbow.GetLocation(), WorkData.ResultElbow.Transform.GetLocation(), Factor, HandInterpolationSpeed));
+			WorkData.CurrentElbow.SetRotation(FMath::QInterpTo(WorkData.CurrentElbow.GetRotation(), WorkData.ResultElbow.Transform.GetRotation(), Factor, HandInterpolationSpeed));
+		}
+		else
+		{
+			WorkData.CurrentClavicle = WorkData.ResultClavicle.Transform;
+			WorkData.CurrentShoulder = WorkData.ResultShoulder.Transform;
+			WorkData.CurrentElbow = WorkData.ResultElbow.Transform;
+			WorkData.CurrentHand = WorkData.ResultHand.Transform;
+		}
+
+		if (WorkData.bHasClavicle)
+		{
+			OutBoneTransforms.Add(FBoneTransform(WorkData.ResultClavicle.BoneIndex, WorkData.CurrentClavicle));
+		}
+
+		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultShoulder.BoneIndex, WorkData.CurrentShoulder));
+		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultElbow.BoneIndex, WorkData.CurrentElbow));
+		OutBoneTransforms.Add(FBoneTransform(WorkData.ResultHand.BoneIndex, WorkData.CurrentHand));
+	}
+
+
+	float TargetFinalAlpha = HeadActualAlpha * AnimCurveAlpha * DistanceAlpha;
+
+	if (!bIsEnableSolver)
+	{
+		TargetFinalAlpha = 0.0f;
+	}
+
+	SolverBlendAlphaSmoothed = FMath::FInterpTo(SolverBlendAlphaSmoothed, TargetFinalAlpha, CachedDeltaSeconds, FinalAlphaInterpSpeed);
+
+
+	if (!bIsEnableSolver && bSolverFadeOutOnly && SolverBlendAlphaSmoothed <= SolverDisableCompleteThreshold)
+	{
+		SolverBlendAlphaSmoothed = 0.0f;
+		bSolverFadeOutOnly = false;
+	}
+
+	for (int32 i = 0; i < OutBoneTransforms.Num(); i++)
+	{
+		const FTransform& AnimBoneTransform = Output.Pose.GetComponentSpaceTransform(OutBoneTransforms[i].BoneIndex);
+		OutBoneTransforms[i].Transform = UKismetMathLibrary::TLerp(AnimBoneTransform, OutBoneTransforms[i].Transform, SolverBlendAlphaSmoothed);
+	}
+
+}
+
+void FAnimNode_CustomAimSolver::SolveAimIKSystem(FCSPose<FCompactPose>& MeshBases, FComponentSpacePoseContext& Output, TArray<FBoneTransform>& OutBoneTransforms)
+{
+
+	if (!bIsEnableSolver && !bIsAllowSmoothingEnableSolver)
+	{
+		return;
+	}
+
+	// Do nothing if the fade-out is complete
+	if (!bIsEnableSolver &&
+		bIsAllowSmoothingEnableSolver &&
+		SolverBlendAlphaSmoothed <= SolverDisableCompleteThreshold)
+	{
+		bSolverFadeOutOnly = false;
+		return;
+	}
+
+	// During the fade-out phase while OFF, dont perform a new solve
+	if (bSolverFadeOutOnly && !bIsEnableSolver)
+	{
+		return;
+	}
 
 	const FBoneContainer& RequiredBones = Output.Pose.GetPose().GetBoneContainer();
 	const FTransform& ComponentToWorld = Output.AnimInstanceProxy->GetComponentTransform();
@@ -1684,27 +2632,26 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 	RefConstantForwardTemp = bIsUseReferenceForwardAxis ? ReferenceConstantForwardAxis : ForwardDirectionVector;
 
-	FTransform LookAtLocation_Temp = LookAtLocation;
-	FTransform Body_LookTarget = LookAtLocation_Temp;
+
+	FTransform LookAtLocation_WS = LookAtLocation;
 	FVector ArmAveragePosition = FVector::ZeroVector;
 
 	if (bIsAggregateHandBody && bIsUseSeparateTargets)
 	{
 		for (int32 ArmIdx = 0; ArmIdx < ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num(); ArmIdx++)
 		{
-			FVector Arm_Position;
+			FVector Arm_Position = ArmTargetLocationOverrides.ArmTargetLocationOverrides[ArmIdx].OverrideArmTransform.GetLocation();
 
-			if ((SK->GetWorld()->IsGameWorld() || bIsWorkOutsidePIE))
-			{
-				Arm_Position = ArmTargetLocationOverrides.ArmTargetLocationOverrides[ArmIdx].OverrideArmTransform.GetLocation();
-			}
-			else
+#if WITH_EDITOR
+			if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE)
 			{
 				if (DebugHandTransforms.IsValidIndex(ArmIdx))
 				{
 					Arm_Position = DebugHandTransforms[ArmIdx].GetLocation();
 				}
 			}
+#endif
+
 			ArmAveragePosition += Arm_Position;
 		}
 
@@ -1714,145 +2661,342 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 		}
 	}
 
+
+#if WITH_EDITOR
 	for (int32 ArmIdx = 0; ArmIdx < ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num(); ArmIdx++)
 	{
-		if ((SK->GetWorld()->IsGameWorld() || bIsWorkOutsidePIE))
+		if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE)
 		{
-			if (DebugHandTransforms.Num() > ArmIdx)
+			if (DebugHandTransforms.IsValidIndex(ArmIdx))
 			{
 				DebugHandTransforms[ArmIdx] = ArmTargetLocationOverrides.ArmTargetLocationOverrides[ArmIdx].OverrideArmTransform;
 			}
 		}
 	}
 
-	if (!(SK->GetWorld()->IsGameWorld() || bIsWorkOutsidePIE))
+	if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE)
 	{
-		LookAtLocation_Temp = DebugLookAtTransform;
-		Body_LookTarget = DebugLookAtTransform;
+		LookAtLocation_WS = DebugLookAtTransform;
 	}
-
-	if (!bIsEnableSolver)
-	{
-		return;
-	}
+#endif
 
 	FAxis LookatAxis_Temp;
 	LookatAxis_Temp.bInLocalSpace = false;
 	LookatAxis_Temp.Axis = ForwardDirectionVector.GetSafeNormal();
+
 	FAxis IntermediateAxis = IntermediateLookAtAxis.ToFAxis();
 
+	const bool bIsPIE = (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE);
 
-	if (bIsAdaptiveTerrainTail)
+	if (!bIsPIE)
 	{
-		if (AimHitResult.bBlockingHit)
+		if (bIsAdaptiveTerrain)
 		{
-			LookAtLocation_Temp.SetLocation(AimHitResult.ImpactPoint + FVector(0, 0, HitResultHeight));
+			FVector TTS_Ref_Pos = LookAtLocation_WS.GetLocation();
+			FVector TTS_Ref_Down = TTS_Ref_Pos;
+
+			ApplyLineTrace(
+				FAnimationUpdateContext(Output.AnimInstanceProxy, 0.0f),
+				TTS_Ref_Pos + FVector(0, 0, TraceUpHeight) * ComponentScale,
+				TTS_Ref_Down + FVector(0, 0, -TraceDownHeight) * ComponentScale,
+				AimHitResult,
+				FLinearColor::Blue,
+				true);
+
+			HitResultHeight = FMath::Abs(TTS_Ref_Pos.Z - ComponentToWorld.GetLocation().Z);
+
+			if (AimHitResult.bBlockingHit)
+			{
+				LookAtLocation_WS.SetLocation(AimHitResult.ImpactPoint + FVector(0, 0, HitResultHeight));
+			}
+
 		}
-		else
+		else if (bIsAdaptiveTerrainFollowBone)
 		{
-			FVector TTS_Ref_Pos = (DebugLookAtTransform * ComponentToWorld).GetLocation();
-			LookAtLocation_Temp.SetLocation(TTS_Ref_Pos);
+
+			const auto HitPos = GetCorrectedEffectorLocationFromTraceByName(
+				Output,
+				TraceJointName,
+				TraceChildBoneName,
+				LookAtLocation_WS.GetLocation(),
+				TraceUpHeight,
+				TraceDownHeight,
+				AdditionalOffsetHeight);
+
+			LookAtLocation_WS.SetLocation(HitPos);
+
 		}
+
 	}
+
+	// ccd root
 	HeadOrigTransform = MeshBases.GetComponentSpaceTransform(EndSplineBone.CachedCompactPoseIndex);
+
+	// root
+	OriginTransform = MeshBases.GetComponentSpaceTransform(StartSplineBone.CachedCompactPoseIndex);
+
+	AnimCurveAlpha = 1.0f;
+	if (bUseAnimCurveAlpha)
+	{
+		const float CurveValue = Output.Curve.Get(IKAlphaCurveName);
+		AnimCurveAlpha = FMath::Clamp(CurveValue, 0.0f, 1.0f);
+	}
+
+	DistanceAlpha = 1.0f;
+	if (bUseDistanceAlpha)
+	{
+		FVector RelativeDistancePositionWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+		if (bUseRootAsClampOrigin)
+		{
+			RelativeDistancePositionWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+		}
+
+		const int32 DistanceCheckBoneIdx = RequiredBones.GetPoseBoneIndexForBoneName(DistanceCheckBoneName);
+		if (DistanceCheckBoneIdx != INDEX_NONE)
+		{
+			const FCompactPoseBoneIndex DistanceCheckBoneIndex(DistanceCheckBoneIdx);
+			const FTransform DistanceCheckBoneCS = Output.Pose.GetComponentSpaceTransform(DistanceCheckBoneIndex);
+			const FVector DistanceCheckBoneWS = ComponentToWorld.TransformPosition(DistanceCheckBoneCS.GetLocation());
+			RelativeDistancePositionWS = DistanceCheckBoneWS;
+		}
+
+		const float EffectorDist = FVector::Dist(RelativeDistancePositionWS, LookAtLocation_WS.GetLocation());
+
+#if ENABLE_DRAW_DEBUG
+		if (bDisplayLineTrace)
+		{
+			DrawDebugLine(SK->GetWorld(), RelativeDistancePositionWS, LookAtLocation_WS.GetLocation(), FColor::White);
+			DrawDebugSphere(SK->GetWorld(), RelativeDistancePositionWS, 50.0f, 10.0, FColor::Blue);
+			DrawDebugSphere(SK->GetWorld(), LookAtLocation_WS.GetLocation(), 50.0f, 10.0, FColor::Blue);
+		}
+#endif
+
+		DistanceAlpha = FMath::Clamp(DistanceAlphaCurve.GetRichCurve()->Eval(EffectorDist), 0.0f, 1.0f);
+	}
 
 	if (LerpedLookatLocation.IsNearlyZero())
 	{
-		LerpedLookatLocation = LookAtLocation_Temp.GetLocation();
+		LerpedLookatLocation = LookAtLocation_WS.GetLocation();
 	}
-	LerpedLookatLocation = AnimLocationLerp(LerpedLookatLocation, LookAtLocation_Temp.GetLocation(), CachedDeltaSeconds);
-
-	LookAtLocation_Temp.SetLocation(LerpedLookatLocation);
-
-	LookAtLocation_Temp.SetLocation(
-		UQuadrupedIKLibrary::ClampRotateVector(
-			LookAtLocation_Temp.GetLocation(),
-			ComponentToWorld.TransformVector(ForwardDirectionVector),
-			ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation()),
-			VerticalRangeAngles.X, VerticalRangeAngles.Y,
-			HorizontalRangeAngles.X, HorizontalRangeAngles.Y, bIsUseNaturalMethod));
+	LerpedLookatLocation = AnimationLocationLerp(LerpedLookatLocation, LookAtLocation_WS.GetLocation(), CachedDeltaSeconds);
 
 
-	FTransform LookHeadTransform = LookAtLocation_Temp;
-	FTransform LookTargetTransform = LookAtLocation_Temp;
+	LookAtLocation_WS.SetLocation(LerpedLookatLocation);
+
+	// 手前側に入りすぎる target を押し戻す
+	if (bUseNearMinDistanceClamp)
+	{
+		FVector OriginWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+		if (bUseRootAsClampOrigin)
+		{
+			OriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+		}
+		const FVector ForwardWS = ComponentToWorld.TransformVector(ForwardDirectionVector).GetSafeNormal();
+
+		FVector ToTargetWS = LookAtLocation_WS.GetLocation() - OriginWS;
+
+		const float ForwardDist = FVector::DotProduct(ToTargetWS, ForwardWS);
+		const FVector ForwardProjected = ForwardWS * ForwardDist;
+		const FVector SideOffset = ToTargetWS - ForwardProjected;
+
+		if (ForwardDist < NearMinDistance)
+		{
+			const float ClampedForwardDist = NearMinDistance;
+
+			const FVector ForwardOnlyClamped = OriginWS + (ForwardWS * ClampedForwardDist) + SideOffset;
+
+			const float TotalDist = ToTargetWS.Size();
+			FVector RadialClamped = LookAtLocation_WS.GetLocation();
+
+			if (TotalDist > KINDA_SMALL_NUMBER && TotalDist < NearMinDistance)
+			{
+				RadialClamped = OriginWS + ToTargetWS.GetSafeNormal() * NearMinDistance;
+			}
+
+			const FVector FinalClampedPos = FMath::Lerp(RadialClamped, ForwardOnlyClamped, FMath::Clamp(NearMinDistanceForwardOnlyAlpha, 0.0f, 1.0f));
+			LookAtLocation_WS.SetLocation(FinalClampedPos);
+		}
+	}
+
+	FVector ClampOriginWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+	if (bUseRootAsClampOrigin)
+	{
+		ClampOriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+	}
+	const FVector ClampForwardWS = ComponentToWorld.TransformVector(ForwardDirectionVector).GetSafeNormal();
+	const FVector RawTargetWS = LookAtLocation_WS.GetLocation();
+
+	FVector ClampedTargetWS = FVector::ZeroVector;
+	if (bIsNotLimitMethod)
+	{
+		ClampedTargetWS = AimHelper::ClampRotateVector_NoLimit(
+			RawTargetWS,
+			ClampForwardWS,
+			ClampOriginWS,
+			VerticalRangeAngles.X,
+			VerticalRangeAngles.Y,
+			HorizontalRangeAngles.X,
+			HorizontalRangeAngles.Y,
+			bIsUseNaturalMethod);
+	}
+	else
+	{
+		ClampedTargetWS = AimHelper::ClampRotateVector(
+			RawTargetWS,
+			ClampForwardWS,
+			ClampOriginWS,
+			VerticalRangeAngles.X,
+			VerticalRangeAngles.Y,
+			HorizontalRangeAngles.X,
+			HorizontalRangeAngles.Y,
+			bIsUseNaturalMethod);
+	}
+
+
+	LookAtLocation_WS.SetLocation(ClampedTargetWS);
+
+
+#if ENABLE_DRAW_DEBUG
+	if (bDisplayLineTrace && SK && SK->GetWorld())
+	{
+		// clamp 前の生ターゲット(黄) と clamp 後(緑)
+		DrawDebugSphere(SK->GetWorld(), RawTargetWS, 20.0f, 12, FColor::Yellow, false, -1.0f);
+		DrawDebugSphere(SK->GetWorld(), ClampedTargetWS, 20.0f, 12, FColor::Green, false, -1.0f);
+		DrawDebugLine(SK->GetWorld(), RawTargetWS, ClampedTargetWS, FColor::Red, false, -1.0f, 0, 2.0f);
+	}
+#endif
+
+	FTransform LookHeadTransform = LookAtLocation_WS;
+	FTransform LookTargetTransform = LookAtLocation_WS;
 
 	if (bIsAggregateHandBody && bIsUseSeparateTargets)
 	{
-		const FVector Head_WS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
-		const FVector ClampedTargetDir = (LookAtLocation_Temp.GetLocation() - Head_WS).GetSafeNormal();
-		const float HeadArmDist = (Head_WS - ArmAveragePosition).Size() * 2;
-		LookAtLocation_Temp.SetLocation(Head_WS + ClampedTargetDir * HeadArmDist);
-		LookTargetTransform.SetLocation((LookAtLocation_Temp.GetLocation() + ArmAveragePosition) / 2);
-		LookAtLocation_Temp.SetLocation((LookAtLocation_Temp.GetLocation() + ArmAveragePosition) / 2);
+		FVector OriginWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+		if (bUseRootAsClampOrigin)
+		{
+			OriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+		}
+		const FVector ClampedTargetDir = (LookAtLocation_WS.GetLocation() - OriginWS).GetSafeNormal();
+		const float HeadArmDist = (OriginWS - ArmAveragePosition).Size() * 2;
+		LookAtLocation_WS.SetLocation(OriginWS + ClampedTargetDir * HeadArmDist);
+		LookTargetTransform.SetLocation((LookAtLocation_WS.GetLocation() + ArmAveragePosition) / 2);
+		LookAtLocation_WS.SetLocation((LookAtLocation_WS.GetLocation() + ArmAveragePosition) / 2);
 	}
 
-	FAnimationRuntime::ConvertBoneSpaceTransformToCS(
-		ComponentToWorld,
-		MeshBases,
-		LookTargetTransform,
-		EndSplineBone.GetCompactPoseIndex(RequiredBones),
-		EBoneControlSpace::BCS_WorldSpace);
-
-	FAnimationRuntime::ConvertBoneSpaceTransformToCS(
-		ComponentToWorld,
-		MeshBases,
-		LookHeadTransform,
-		EndSplineBone.GetCompactPoseIndex(RequiredBones),
-		EBoneControlSpace::BCS_WorldSpace);
+	FAnimationRuntime::ConvertBoneSpaceTransformToCS(ComponentToWorld, MeshBases, LookTargetTransform, EndSplineBone.GetCompactPoseIndex(RequiredBones), EBoneControlSpace::BCS_WorldSpace);
+	FAnimationRuntime::ConvertBoneSpaceTransformToCS(ComponentToWorld, MeshBases, LookHeadTransform, EndSplineBone.GetCompactPoseIndex(RequiredBones), EBoneControlSpace::BCS_WorldSpace);
 
 	bIsNsewPoleMethod = false;
 	bIsUpArmTwistTechnique = (ArmTwistAxis == EArmTwistIKType::UpAxisTwist) ? true : false;
 
 
-	AimHelper::Evaluate_ConsecutiveBoneRotations(
-		Output,
-		LookBendingCurve,
-		StartSplineBone,
-		EndSplineBone,
-		LookAtRadius,
-		InnerBodyClamp,
-		LookAtLocation_Temp,
-		LookatAxis_Temp,
-		IntermediateAxis,
-		bUseSpecificIntermediateAxis,
-		LookAtRadius,
-		VerticalDipTreshold,
-		DownwardDipMultiplier,
-		InvertedDipMultiplier,
-		SideMoveMultiplier,
-		SideDownMultiplier,
-		false,
-		FTransform::Identity,
-		LookMultiplierCurve,
-		UpRotClamp,
-		bIsUseNaturalMethod,
-		bIsHeadUseSeparateClamp,
-		LookAtClamp,
-		LookHeadTransform,
-		bIsOverrideHeadRotation,
-		HeadTransforms);
+	switch (AimSolverType)
+	{
+	case EAimSolverType::HandAim:
+	case EAimSolverType::LookAt:
+	{
+		AimHelper::Evaluate_ConsecutiveBoneRotations_LookAt(
+			Output,
+			StartSplineBone,
+			EndSplineBone,
+			InnerBodyClamp,
+			LookAtLocation_WS,
+			LookatAxis_Temp,
+			IntermediateAxis,
+			LookBendingCurve,
+			LookMultiplierCurve,
+			bUseSpecificIntermediateAxis,
+			bIsEnableDipMultiplier,
+			LookAtRadius,
+			VerticalDipTreshold,
+			DownwardDipMultiplier,
+			InvertedDipMultiplier,
+			SideMoveMultiplier,
+			SideDownMultiplier,
+			FTransform::Identity,
+			UpRotClamp,
+			bIsUseNaturalMethod,
+			bIsHeadUseSeparateClamp,
+			LookAtClamp,
+			LookHeadTransform,
+			bUsePerJointRotationOverrides,
+			PerJointRotationOverrides,
+			HeadTransforms);
+	}
+	break;
+	case EAimSolverType::CCD:
+	{
+		AimHelper::Evaluate_ConsecutiveBoneRotations_CCD(
+			Output,
+			StartSplineBone,
+			EndSplineBone,
+			BaseAngle,
+			LookAtLocation_WS,
+			LookatAxis_Temp,
+			LookBendingCurve,
+			LookMultiplierCurve,
+			bIsEnableDipMultiplier,
+			VerticalDipTreshold,
+			DownwardDipMultiplier,
+			InvertedDipMultiplier,
+			SideMoveMultiplier,
+			SideDownMultiplier,
+			false,
+			FTransform::Identity,
+			UpRotClamp,
+			bIsUseNaturalMethod,
+			bIsHeadUseSeparateClamp,
+			LookHeadTransform,
+			Precision,
+			MaxIteration,
+			bUsePerJointRotationOverrides,
+			PerJointRotationOverrides,
+			bUseTipReferenceBone,
+			TipReferenceBone,
+			RobotArmSettings,
+			bAlignTipYawToTarget,
+			HeadTransforms);
+	}
+	break;
+	}
 
-	if (bIsHeadAccurate)
+
+	// follow TerrainFollowBone LookAt ImpactNormal
+	if (bUseEndSurfaceNormal && bIsAdaptiveTerrainFollowBone && EndSurfaceHitResult.bBlockingHit)
 	{
 		const int32 LastIndex = (HeadTransforms.Num() - 1);
-		if (bIsOverrideHeadRotation)
+		const float DotUp = FMath::Clamp(FVector::DotProduct(EndSurfaceHitResult.ImpactNormal.GetSafeNormal(), FVector::UpVector), -1.0f, 1.0f);
+
+		const float SlopeAngleDeg = FMath::RadiansToDegrees(FMath::Acos(DotUp));
+
+		if (SlopeAngleDeg >= EndSurfaceMinSlopeAngle)
 		{
-			HeadTransforms[LastIndex].Transform.SetRotation(
-				(ComponentToWorld.GetRotation().Inverse() *
-					LookAtLocation_Temp.GetRotation()) * HeadOrigTransform.GetRotation());
-		}
-		else
-		{
-			HeadTransforms[LastIndex].Transform.SetRotation(
-				LookAt_Processor(
-					RequiredBones,
-					Output,
-					MeshBases,
-					LookHeadTransform.GetLocation(),
-					EndSplineBone.BoneName,
-					LastIndex, LookAtClamp).Transform.GetRotation());
+			FTransform EndTransform = HeadTransforms[LastIndex].Transform;
+			EndTransform.SetRotation(
+				MakeSurfaceAlignedRotationPreserveForward(
+					EndTransform,
+					EndSurfaceHitResult.ImpactNormal,
+					EndSurfaceLocalForwardAxis,
+					EndSurfaceLocalUpAxis,
+					EndSurfaceNormalAlignAlpha));
+
+			HeadTransforms[LastIndex].Transform = EndTransform;
 		}
 	}
+
+	if (bIsOverrideHeadRotation)
+	{
+		const int32 LastIndex = (HeadTransforms.Num() - 1);
+		const FBoneTransform& BoneTransform = LookAt_Processor(
+			RequiredBones,
+			Output,
+			MeshBases,
+			LookHeadTransform.GetLocation(),
+			LastIndex);
+		const FQuat ProcessRot = BoneTransform.Transform.GetRotation();
+		HeadTransforms[LastIndex].Transform.SetRotation(BoneTransform.Transform.GetRotation());
+	}
+
 
 	TArray<FCompactPoseBoneIndex> HeadTransformPoses = TArray<FCompactPoseBoneIndex>();
 
@@ -1894,7 +3038,7 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 					if (ConnectorIndex.GetInt() > 0)
 					{
-						const FVector Arm_LookTarget = LookAtLocation_Temp.GetLocation();
+						const FVector Arm_LookTarget = LookAtLocation_WS.GetLocation();
 						FTransform  Common_Spine_Transform = MeshBases.GetComponentSpaceTransform(ConnectorIndex);
 						FVector Target_CS_Position = ComponentToWorld.InverseTransformPosition(Arm_LookTarget);
 
@@ -1925,7 +3069,8 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 							Individual_Leg_Clamp,
 							FRotator::ZeroRotator,
 							bIsUseNaturalMethod,
-							1.0f, 1.0f);
+							1.0f,
+							1.0f);
 
 
 						const FTransform Inv_Shoulder_Value = Shoulder_Transform_Default.Inverse() * Rotated_Shoulder;
@@ -1959,7 +3104,7 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 							{
 								Offseted_Hand_Transform.SetLocation(Target_CS_Position);
 
-								Offseted_Hand_Transform.SetLocation(UQuadrupedIKLibrary::ClampRotateVector(
+								Offseted_Hand_Transform.SetLocation(AimHelper::ClampRotateVector(
 									ComponentToWorld.TransformPosition(Offseted_Hand_Transform.GetLocation()),
 									ComponentToWorld.TransformVector(ForwardDirectionVector),
 									ComponentToWorld.TransformPosition(Shoulder_Transform_Output.GetLocation()),
@@ -2000,8 +3145,7 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 							if (ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num() > MainArmIndex)
 							{
-								Offseted_Hand_Transform = UKismetMathLibrary::TLerp(Hand_Spine_Relation,
-									Offseted_Hand_Transform,
+								Offseted_Hand_Transform = UKismetMathLibrary::TLerp(Hand_Spine_Relation, Offseted_Hand_Transform,
 									ArmTargetLocationOverrides.ArmTargetLocationOverrides[MainArmIndex].ArmAlpha);
 
 								if (bIsOverrideHandRotation)
@@ -2044,9 +3188,7 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 								bIsReachInstead,
 								ArmSolverWorkArea[MainArmIndex]);
 
-							const int32 PVIdx = PoleVectorIndex;
 							MainHandNewTransform = ArmSolverWorkArea[MainArmIndex].ResultElbow.Transform;
-							//MainHandDefaultTransform = Hand_Transform_Default;
 							MainHandDefaultTransform = Elbow_Transform_Default;
 						}
 						else
@@ -2055,10 +3197,13 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 							ArmSolverWorkArea[MainArmIndex].ResultShoulder.Transform = Rotated_Shoulder;
 						}
 					}
+
 				}
 			}
 		}
 
+
+		constexpr int32 AimingHandLimb_MAX = 5;
 		for (int32 LIndex = 0; LIndex < AimingHandLimbs.Num(); LIndex++)
 		{
 			ActualShoulderBoneArray[LIndex] = ShoulderBoneArray[LIndex];
@@ -2067,9 +3212,8 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 			FCompactPoseBoneIndex LastSavedBone = CurParent;
 
 			bool Found_Limbs = false;
-			constexpr int32 MAX = 5;
 
-			for (int32 Index = 0; Index < MAX; Index++)
+			for (int32 Index = 0; Index < AimingHandLimb_MAX; Index++)
 			{
 				if (ActualShoulderBoneArray[LIndex].BoneIndex > 0)
 				{
@@ -2116,9 +3260,12 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 		}
 
+
 		for (int32 LIndex = 0; LIndex < AimingHandLimbs.Num(); LIndex++)
 		{
-			if ((ActualShoulderBoneArray[LIndex].IsValidToEvaluate() && ElbowBoneArray[LIndex].IsValidToEvaluate() && HandBoneArray[LIndex].IsValidToEvaluate()) &&
+			if ((ActualShoulderBoneArray[LIndex].IsValidToEvaluate() &&
+				ElbowBoneArray[LIndex].IsValidToEvaluate() &&
+				HandBoneArray[LIndex].IsValidToEvaluate()) &&
 				(LIndex != MainArmIndex || MainArmIndex < 0 || bIsReachInstead))
 			{
 
@@ -2134,13 +3281,13 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 				FCompactPoseBoneIndex Connector_Index = FCompactPoseBoneIndex(0);
 				FTransform Common_Spine_Modified_Transform = FTransform::Identity;
-				FVector Arm_LookTarget = LookAtLocation_Temp.GetLocation();
+				FVector Arm_LookTarget = LookAtLocation_WS.GetLocation();
 
 				if (bIsUseSeparateTargets)
 				{
 					if (ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num() > LIndex)
 					{
-						if (DebugHandTransforms.Num() > LIndex)
+						if (DebugHandTransforms.IsValidIndex(LIndex))
 						{
 							Arm_LookTarget = DebugHandTransforms[LIndex].GetLocation();
 						}
@@ -2174,12 +3321,19 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 				FTransform Common_Spine_Transform = MeshBases.GetComponentSpaceTransform(Connector_Index);
 				FVector Target_CS_Position = ComponentToWorld.InverseTransformPosition(Arm_LookTarget);
 
+
+				FVector OriginWS = ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation());
+				if (bUseRootAsClampOrigin)
+				{
+					OriginWS = ComponentToWorld.TransformPosition(OriginTransform.GetLocation());
+				}
+
 				if (AimingHandLimbs[LIndex].bIsOverrideLimits)
 				{
-					Target_CS_Position = (UQuadrupedIKLibrary::ClampRotateVector(
+					Target_CS_Position = (AimHelper::ClampRotateVector(
 						Arm_LookTarget,
 						ComponentToWorld.TransformVector(ForwardDirectionVector),
-						ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation()),
+						OriginWS,
 						AimingHandLimbs[LIndex].MaxArm_VAngle.X,
 						AimingHandLimbs[LIndex].MaxArm_VAngle.Y,
 						AimingHandLimbs[LIndex].MaxArm_HAngle.X,
@@ -2188,10 +3342,10 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 				}
 				else
 				{
-					Target_CS_Position = (UQuadrupedIKLibrary::ClampRotateVector(
+					Target_CS_Position = (AimHelper::ClampRotateVector(
 						Arm_LookTarget,
 						ComponentToWorld.TransformVector(ForwardDirectionVector),
-						ComponentToWorld.TransformPosition(HeadOrigTransform.GetLocation()),
+						OriginWS,
 						VerticalRangeAngles.X,
 						VerticalRangeAngles.Y,
 						HorizontalRangeAngles.X,
@@ -2203,20 +3357,15 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 				Target_CS_Position += AimingHandLimbs[LIndex].ArmAimingOffset;
 
 				const FTransform Inv_Common_Spine = Common_Spine_Transform.Inverse() * Common_Spine_Modified_Transform;
-				const FTransform Hand_Transform_Default = MeshBases.GetComponentSpaceTransform(
-					HandBoneArray[LIndex].CachedCompactPoseIndex);
+				const FTransform Hand_Transform_Default = MeshBases.GetComponentSpaceTransform(HandBoneArray[LIndex].CachedCompactPoseIndex);
 
-				const FTransform Shoulder_Transform_Default = MeshBases.GetComponentSpaceTransform(
-					ActualShoulderBoneArray[LIndex].CachedCompactPoseIndex);
+				const FTransform Shoulder_Transform_Default = MeshBases.GetComponentSpaceTransform(ActualShoulderBoneArray[LIndex].CachedCompactPoseIndex);
 
-				const FTransform Knee_Transform_Default = MeshBases.GetComponentSpaceTransform(
-					ElbowBoneArray[LIndex].CachedCompactPoseIndex);
+				const FTransform Knee_Transform_Default = MeshBases.GetComponentSpaceTransform(ElbowBoneArray[LIndex].CachedCompactPoseIndex);
 
-				FTransform Hand_Transform = MeshBases.GetComponentSpaceTransform(
-					HandBoneArray[LIndex].CachedCompactPoseIndex) * Inv_Common_Spine;
+				FTransform Hand_Transform = MeshBases.GetComponentSpaceTransform(HandBoneArray[LIndex].CachedCompactPoseIndex) * Inv_Common_Spine;
 
-				FTransform Shoulder_Transform = MeshBases.GetComponentSpaceTransform(
-					ActualShoulderBoneArray[LIndex].CachedCompactPoseIndex) * Inv_Common_Spine;
+				FTransform Shoulder_Transform = MeshBases.GetComponentSpaceTransform(ActualShoulderBoneArray[LIndex].CachedCompactPoseIndex) * Inv_Common_Spine;
 
 				FTransform Shoulder_Offseted_Transform = Shoulder_Transform_Default;
 				Shoulder_Offseted_Transform.SetLocation(Shoulder_Transform.GetLocation());
@@ -2230,7 +3379,9 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 					LookatAxis_Temp,
 					Individual_Leg_Clamp,
 					FRotator::ZeroRotator,
-					bIsUseNaturalMethod, 1.0f, 1.0f);
+					bIsUseNaturalMethod,
+					1.0f,
+					1.0f);
 
 				const FTransform Inv_Shoulder_Value = Shoulder_Transform_Default.Inverse() * Rotated_Shoulder;
 				FTransform Shoulder_Transform_Output = Shoulder_Transform_Default * Inv_Shoulder_Value;
@@ -2294,16 +3445,24 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 					}
 
 
-					if (ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num() > LIndex)
+					if (ArmTargetLocationOverrides.ArmTargetLocationOverrides.IsValidIndex(LIndex))
 					{
-						Offseted_Hand_Transform = UKismetMathLibrary::TLerp(Hand_Spine_Relation, Offseted_Hand_Transform,
-							ArmTargetLocationOverrides.ArmTargetLocationOverrides[LIndex].ArmAlpha);
+						const FBone_SingleArmElement& OverrideData = ArmTargetLocationOverrides.ArmTargetLocationOverrides[LIndex];
+						Offseted_Hand_Transform = UKismetMathLibrary::TLerp(Hand_Spine_Relation, Offseted_Hand_Transform, OverrideData.ArmAlpha);
 
 						if (bIsOverrideHandRotation)
 						{
-							const FQuat Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * DebugHandTransforms[LIndex].GetRotation();
+							FQuat Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * LookAtLocation.GetRotation();
+							if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE)
+							{
+								if (DebugHandTransforms.IsValidIndex(LIndex))
+								{
+									Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * DebugHandTransforms[LIndex].GetRotation();
+								}
+							}
 							Offseted_Hand_Transform.SetRotation(Offseted_Rotation_Value);
 						}
+
 					}
 					else
 					{
@@ -2353,48 +3512,48 @@ void FAnimNode_CustomAimSolver::FABRIK_BodySystem(FCSPose<FCompactPose>& MeshBas
 
 			}
 		}
+
+
 	}
 }
 
 
-FVector FAnimNode_CustomAimSolver::AnimLocationLerp(const FVector& InStartPosition, const FVector& InEndPosition, const float InDeltaSeconds) const
+FVector FAnimNode_CustomAimSolver::AnimationLocationLerp(const FVector& StartPosition, const FVector& EndPosition, const float DeltaSeconds) const
 {
 	if (!bIsEnableInterpolation)
 	{
-		return InEndPosition;
+		return EndPosition;
 	}
 
-	FVector Local_StartPosition = InStartPosition;
-	FVector Local_EndPosition = InEndPosition;
+	FVector Local_StartPosition = StartPosition;
+	FVector Local_EndPosition = EndPosition;
 
-	if (bIsAdaptiveTerrainTail)
+
+	if (bIsAdaptiveTerrain && AimHitResult.bBlockingHit)
 	{
 		Local_StartPosition.X = Local_EndPosition.X;
 		Local_StartPosition.Y = Local_EndPosition.Y;
 	}
 
-	const FVector Diff = (Local_StartPosition - Local_EndPosition) / FMath::Clamp(100 - (InterpolationSpeed * InDeltaSeconds * 12), 1, 100);
-	FVector Output = FVector::ZeroVector;
+	constexpr float Max = 6.0f;
+	const FVector Diff = (Local_StartPosition - Local_EndPosition) / FMath::Clamp(Max - InterpolationSpeed, 1.0f, Max);
 
 	if (InterpLocationType == EIKInterpLocationType::DivisiveLocation)
 	{
-		Output = (Local_StartPosition - Diff);
+		return (Local_StartPosition - Diff);
 	}
-	else
-	{
-		Output = FMath::VInterpTo(Local_StartPosition, Local_EndPosition, InDeltaSeconds, InterpolationSpeed);
-	}
-	return Output;
+
+	const float InterpSpeed = FMath::Abs(InterpolationSpeed);
+	return FMath::VInterpTo(Local_StartPosition, Local_EndPosition, DeltaSeconds, InterpSpeed);
 }
 
+
 const FBoneTransform FAnimNode_CustomAimSolver::LookAt_Processor(
-	const FBoneContainer& RequiredBones, 
+	const FBoneContainer& RequiredBones,
 	FComponentSpacePoseContext& Output,
-	FCSPose<FCompactPose>& MeshBases, 
-	const FVector& OffsetVector, 
-	const FName& BoneName, 
-	const int32 InIndex, 
-	const float LookAtClampParam)
+	FCSPose<FCompactPose>& MeshBases,
+	const FVector& OffsetVector,
+	const int32 InIndex)
 {
 	const FCompactPoseBoneIndex ModifyBoneIndex = EndSplineBone.GetCompactPoseIndex(RequiredBones);
 	FTransform ComponentBoneTransform = MeshBases.GetComponentSpaceTransform(ModifyBoneIndex);
@@ -2409,11 +3568,11 @@ const FBoneTransform FAnimNode_CustomAimSolver::LookAt_Processor(
 	const FVector TargetLocationInComponentSpace = OffsetVector;
 	FAxis LookatAxisTemp;
 	LookatAxisTemp.bInLocalSpace = false;
-	LookatAxisTemp.Axis = ForwardDirectionVector.GetSafeNormal();
+	LookatAxisTemp.Axis = CCDTipBoneDirectionVector.GetSafeNormal();
 
 	const FVector LookAtVector = LookatAxisTemp.GetTransformedAxis(ComponentBoneTransform).GetSafeNormal();
 	FVector TargetDir = (TargetLocationInComponentSpace - ComponentBoneTransform.GetLocation()).GetSafeNormal();
-	const float AimClampInRadians = FMath::DegreesToRadians(FMath::Min(LookAtClampParam, 180.f));
+	const float AimClampInRadians = FMath::DegreesToRadians(FMath::Min(HeadEndLookAtClamp, 180.f));
 	const float DiffAngle = FMath::Acos(FVector::DotProduct(LookAtVector, TargetDir));
 
 	if (DiffAngle > AimClampInRadians)
@@ -2437,18 +3596,17 @@ const FBoneTransform FAnimNode_CustomAimSolver::LookAt_Processor(
 	RotationTransform_WS.SetRotation(NormalizedDelta);
 
 	FAnimationRuntime::ConvertCSTransformToBoneSpace(
-		ComponentToWorld, MeshBases, 
+		ComponentToWorld, MeshBases,
 		RotationTransform_WS, ModifyBoneIndex, EBoneControlSpace::BCS_WorldSpace);
 
 	FAnimationRuntime::ConvertBoneSpaceTransformToCS(
-		ComponentToWorld, MeshBases, 
+		ComponentToWorld, MeshBases,
 		RotationTransform_WS, ModifyBoneIndex, EBoneControlSpace::BCS_WorldSpace);
 
 	ComponentBoneTransform.SetRotation(RotationTransform_WS.GetRotation() * ComponentBoneTransform.GetRotation());
 
 	return (FBoneTransform(ModifyBoneIndex, ComponentBoneTransform));
 }
-
 
 
 #if WITH_EDITOR
@@ -2490,21 +3648,337 @@ void FAnimNode_CustomAimSolver::ResizeDebugLocations(const int32 NewSize)
 #endif
 
 
-void FAnimNode_CustomAimSolver::ApplyLineTrace(const FAnimationUpdateContext& Context, const FVector& StartPoint, const FVector& EndPoint,
-	FHitResult& OutHitResult, const FLinearColor& DebugColor, const bool bIsDebugMode)
+FQuat FAnimNode_CustomAimSolver::MakeSurfaceAlignedRotationPreserveForward(
+	const FTransform& CurrentTransform,
+	const FVector& SurfaceNormalWS,
+	const FVector& LocalForwardAxis,
+	const FVector& LocalUpAxis,
+	const float InNormalAlpha) const
+{
+	const FQuat CurrentRot = CurrentTransform.GetRotation();
+
+	FVector ForwardWS = CurrentRot.RotateVector(LocalForwardAxis).GetSafeNormal();
+	FVector UpWS = SurfaceNormalWS.GetSafeNormal();
+
+	if (ForwardWS.IsNearlyZero() || UpWS.IsNearlyZero())
+	{
+		return CurrentRot;
+	}
+
+	ForwardWS = FVector::VectorPlaneProject(ForwardWS, UpWS).GetSafeNormal();
+	if (ForwardWS.IsNearlyZero())
+	{
+		return CurrentRot;
+	}
+
+	const FVector RightWS = FVector::CrossProduct(UpWS, ForwardWS).GetSafeNormal();
+	ForwardWS = FVector::CrossProduct(RightWS, UpWS).GetSafeNormal();
+
+	const FMatrix TargetMatrix(
+		FPlane(ForwardWS, 0.0f),
+		FPlane(RightWS, 0.0f),
+		FPlane(UpWS, 0.0f),
+		FPlane(0, 0, 0, 1));
+
+	const FQuat TargetRot = FQuat(TargetMatrix).GetNormalized();
+	return FQuat::Slerp(CurrentRot, TargetRot, FMath::Clamp(InNormalAlpha, 0.0f, 1.0f)).GetNormalized();
+}
+
+const FVector FAnimNode_CustomAimSolver::GetCorrectedEffectorLocationFromTraceByName(
+	FComponentSpacePoseContext& Output,
+	const FName& TraceBoneName,
+	const FName& ChildBoneName,
+	const FVector& InEffectorWorldLocation,
+	const float TraceUpOffset,
+	const float TraceDownOffset,
+	const float AdditionalOffsetZ)
+{
+
+
+	const FBoneContainer& BoneContainer = Output.Pose.GetPose().GetBoneContainer();
+	const FTransform& ComponentToWorld = Output.AnimInstanceProxy->GetComponentTransform();
+	const USkeletalMeshComponent* SK = Output.AnimInstanceProxy->GetSkelMeshComponent();
+
+	const int32 TraceBonePoseIndexInt = BoneContainer.GetPoseBoneIndexForBoneName(TraceBoneName);
+	const int32 ChildBonePoseIndexInt = BoneContainer.GetPoseBoneIndexForBoneName(ChildBoneName);
+
+	if (TraceBonePoseIndexInt == INDEX_NONE || ChildBonePoseIndexInt == INDEX_NONE)
+	{
+		return InEffectorWorldLocation;
+	}
+
+	const FCompactPoseBoneIndex TraceBoneIndex(TraceBonePoseIndexInt);
+	const FTransform TraceBoneCS = Output.Pose.GetComponentSpaceTransform(TraceBoneIndex);
+	const FVector TraceBoneWS = ComponentToWorld.TransformPosition(TraceBoneCS.GetLocation());
+
+	const FCompactPoseBoneIndex ChildBoneIndex(ChildBonePoseIndexInt);
+	const FTransform ChildBoneCS = Output.Pose.GetComponentSpaceTransform(ChildBoneIndex);
+	const FVector ChildBoneWS = ComponentToWorld.TransformPosition(ChildBoneCS.GetLocation());
+
+
+	const auto EffectPos = InEffectorWorldLocation;
+
+	// calc effectorlocation based trace
+	const FVector TraceStart = EffectPos + FVector(0.0f, 0.0f, TraceUpOffset * ComponentScale);
+	const FVector TraceEnd = EffectPos - FVector(0.0f, 0.0f, TraceDownOffset * ComponentScale);
+
+	EndSurfaceHitResult.Reset();
+
+	ApplyLineTrace(
+		FAnimationUpdateContext(Output.AnimInstanceProxy, 0.0f),
+		TraceStart,
+		TraceEnd,
+		EndSurfaceHitResult,
+		FLinearColor::Green,
+		true);
+
+	if (!EndSurfaceHitResult.bBlockingHit)
+	{
+		return InEffectorWorldLocation;
+	}
+
+
+	FVector CorrectedEffectorWS = InEffectorWorldLocation;
+	const float EndHeightOffset = FMath::Abs(ChildBoneWS.Z - TraceBoneWS.Z);
+	CorrectedEffectorWS.Z = EndSurfaceHitResult.ImpactPoint.Z + EndHeightOffset + AdditionalOffsetZ;
+
+	return CorrectedEffectorWS;
+}
+
+void FAnimNode_CustomAimSolver::ApplyLineTrace(
+	const FAnimationUpdateContext& Context,
+	const FVector& StartLocation,
+	const FVector& EndLocation,
+	FHitResult& OutHitResult,
+	const FLinearColor& DebugColor,
+	const bool bRenderTrace)
 {
 
 	const auto SK = Context.AnimInstanceProxy->GetSkelMeshComponent();
 
-	UKismetSystemLibrary::LineTraceSingle(SK, StartPoint, EndPoint,
-		TraceChannel, true, IgnoreActors,
-		EDrawDebugTrace::None, OutHitResult, true, DebugColor);
+	const float OwnerScale = ComponentScale;
+	const float SelectedRadius = Trace_Radius;
+	bool bIgnoreOverlaps = false;
+	TArray<FHitResult> HitResults;
 
-	if (bIsDebugMode)
+	ECollisionChannel CollisionChannel = UEngineTypes::ConvertToCollisionChannel(TraceChannel);
+
+	switch (RaycastTraceType)
 	{
-		TraceStartList.Add(StartPoint);
-		TraceEndList.Add(EndPoint);
+	case EIKRaycastType::LineTrace:
+	{
+		Wv::Anim::LineTraceMulti(SK, StartLocation, EndLocation, CollisionChannel,
+			true, bIgnoreOverlaps, IgnoreActors, HitResults);
+	}
+	break;
+	case EIKRaycastType::SphereTrace:
+	{
+		Wv::Anim::SphereTraceMulti(SK, StartLocation, EndLocation, SelectedRadius, CollisionChannel,
+			true, bIgnoreOverlaps, IgnoreActors, HitResults);
+	}
+	break;
+	case EIKRaycastType::BoxTrace:
+	{
+		const FVector& Extent = FVector(1, 1, 0) * SelectedRadius;
+		Wv::Anim::BoxTraceMulti(SK, StartLocation, EndLocation, Extent, FQuat::Identity, CollisionChannel,
+			true, bIgnoreOverlaps, IgnoreActors, HitResults);
+	}
+	break;
+	}
+
+	if (bRenderTrace)
+	{
+		TraceStartList.Add(StartLocation);
+		TraceEndList.Add(EndLocation);
+		TraceRadiusList.Add(SelectedRadius);
+	}
+
+	bool bHit = false;
+	UQuadrupedIKLibrary::HandlePickHitResult(HitResults, OutHitResult, bHit, NormalDotThreshold);
+
+
+#if ENABLE_DRAW_DEBUG
+	if (bDisplayLineTrace)
+	{
+		TWeakObjectPtr<UWorld> Editor_World = GEngine->GetWorldFromContextObject(SK, EGetWorldErrorMode::LogAndReturnNull);
+
+		switch (RaycastTraceType)
+		{
+		case EIKRaycastType::LineTrace:
+		{
+			FFunctionGraphTask::CreateAndDispatchWhenReady(
+				[=]() {
+					if (Editor_World.IsValid())
+					{
+						Wv::Anim::DrawDebugLineTraceSingle(Editor_World.Get(), StartLocation, EndLocation, OutHitResult.bBlockingHit,
+							OutHitResult, FLinearColor::Red, DebugColor);
+					}
+				},
+				TStatId(), nullptr, ENamedThreads::GameThread
+			);
+		}
+		break;
+		case EIKRaycastType::SphereTrace:
+		{
+			FFunctionGraphTask::CreateAndDispatchWhenReady(
+				[=]() {
+					if (Editor_World.IsValid())
+					{
+						Wv::Anim::DrawDebugSphereTraceSingle(Editor_World.Get(), StartLocation, EndLocation, SelectedRadius,
+							OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+					}
+				},
+				TStatId(), nullptr, ENamedThreads::GameThread
+			);
+		}
+		break;
+		case EIKRaycastType::BoxTrace:
+		{
+			FFunctionGraphTask::CreateAndDispatchWhenReady(
+				[=]() {
+					if (Editor_World.IsValid())
+					{
+						const FVector& Extent = FVector(1, 1, 0) * SelectedRadius;
+						Wv::Anim::DrawDebugBoxTraceSingle(Editor_World.Get(), StartLocation, EndLocation, Extent,
+							FQuat::Identity, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+					}
+				},
+				TStatId(), nullptr, ENamedThreads::GameThread
+			);
+		}
+		break;
+		}
+	}
+#endif
+
+}
+
+
+
+void FAnimNode_CustomAimSolver::DrawHorizontalAngleDebugArc(
+	USkeletalMeshComponent* MeshComp,
+	FPrimitiveDrawInterface* PDI,
+	FAnimInstanceProxy* Proxy) const
+{
+	if (!MeshComp)
+	{
+		return;
+	}
+
+	UWorld* World = MeshComp->GetWorld();
+
+	// PDI も Proxy も無い場合は World 経由でしか描けない
+	if (!World && !PDI && !Proxy)
+	{
+		return;
+	}
+
+	auto DrawLine = [&](const FVector& A, const FVector& B, const FColor& InColor, float Thickness)
+		{
+			if (PDI)
+			{
+				PDI->DrawLine(A, B, FLinearColor(InColor), SDPG_Foreground, Thickness);
+			}
+			else if (Proxy)
+			{
+				Proxy->AnimDrawDebugLine(A, B, InColor, false, -1.0f, Thickness);
+			}
+			else if (World)
+			{
+				DrawDebugLine(World, A, B, InColor, false, 0.0f, 0, Thickness);
+			}
+		};
+
+	FVector Origin = DebugClampOriginWS;
+	FVector RawTarget = DebugClampRawTargetWS;
+	FVector ClampedTarget = DebugClampResultTargetWS;
+
+	// 円弧を足元の高さに揃えて見やすくする
+	{
+		const float Offset = 10.0f;
+		const float ComponentZ = MeshComp->GetComponentLocation().Z + Offset;
+
+		Origin.Z = ComponentZ;
+		RawTarget.Z = ComponentZ;
+		ClampedTarget.Z = ComponentZ;
+	}
+
+	FVector Forward = DebugClampForwardWS.GetSafeNormal();
+	Forward.Z = 0.0f;
+
+	if (!Forward.Normalize())
+	{
+		return;
+	}
+
+	const float Radius = HorizontalDebugArcRadius * ComponentScale;
+	const int32 Segments = FMath::Max(8, HorizontalDebugArcSegments);
+
+	FVector Right = FVector::CrossProduct(Forward, FVector::UpVector).GetSafeNormal();
+	if (Right.IsNearlyZero())
+	{
+		Right = FVector::RightVector;
+	}
+
+	auto MakeDirFromHorizontalDeg = [&](float InDeg) -> FVector
+		{
+			const float Rad = FMath::DegreesToRadians(InDeg);
+			const float CosA = FMath::Cos(Rad);
+			const float SinA = FMath::Sin(Rad);
+			return (Forward * CosA + Right * SinA).GetSafeNormal();
+		};
+
+	// 正面方向
+	DrawLine(Origin, Origin + Forward * Radius, HorizontalDebugForwardColor, 2.0f);
+
+	// clamp 前のターゲット方向
+	const FVector RawDir = (RawTarget - Origin).GetSafeNormal();
+	if (!RawDir.IsNearlyZero())
+	{
+		DrawLine(Origin, Origin + RawDir * Radius, HorizontalDebugRawColor, 2.0f);
+	}
+
+	// clamp 後のターゲット方向
+	const FVector ClampedDir = (ClampedTarget - Origin).GetSafeNormal();
+	if (!ClampedDir.IsNearlyZero())
+	{
+		DrawLine(Origin, Origin + ClampedDir * Radius, HorizontalDebugClampedColor, 3.0f);
+	}
+
+	const float CircleThickness = 12.0f;
+
+	// 可動域の両端
+	const FVector MinDir = MakeDirFromHorizontalDeg(DebugHorizontalClampMinDeg);
+	const FVector MaxDir = MakeDirFromHorizontalDeg(DebugHorizontalClampMaxDeg);
+
+	DrawLine(Origin, Origin + MinDir * Radius, HorizontalDebugArcColor, CircleThickness);
+	DrawLine(Origin, Origin + MaxDir * Radius, HorizontalDebugArcColor, CircleThickness);
+
+	// 可動域の円弧
+	float StartDeg = DebugHorizontalClampMinDeg;
+	float EndDeg = DebugHorizontalClampMaxDeg;
+
+	if (EndDeg < StartDeg)
+	{
+		EndDeg += 360.0f;
+	}
+
+	FVector PrevPoint = Origin + MakeDirFromHorizontalDeg(StartDeg) * Radius;
+
+	for (int32 SegIdx = 1; SegIdx <= Segments; ++SegIdx)
+	{
+		const float T = static_cast<float>(SegIdx) / static_cast<float>(Segments);
+		const float Deg = FMath::Lerp(StartDeg, EndDeg, T);
+		const FVector CurrPoint = Origin + MakeDirFromHorizontalDeg(Deg) * Radius;
+
+		DrawLine(PrevPoint, CurrPoint, HorizontalDebugArcColor, CircleThickness);
+
+		PrevPoint = CurrPoint;
 	}
 }
 
 
+EAimSolverType FAnimNode_CustomAimSolver::GetAimSolverType() const
+{
+	return AimSolverType;
+}

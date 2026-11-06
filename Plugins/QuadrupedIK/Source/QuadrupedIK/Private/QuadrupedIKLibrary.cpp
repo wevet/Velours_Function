@@ -166,107 +166,9 @@ const bool UQuadrupedIKLibrary::DoesContainsNaN(const TArray<FBoneTransform>& Bo
 	return false;
 }
 
-void UQuadrupedIKLibrary::DrawDebugLineTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor)
+void UQuadrupedIKLibrary::HandlePickHitResult(const TArray<FHitResult>& Hits, FHitResult& OutHitResult, bool& bIsOutHit, const float NormalDotThreshold)
 {
-	bool bPersistent = false;
-	float LifeTime = 0.0f;
-
-	// @fixme, draw line with thickness = 2.f?
-	if (bHit && OutHit.bBlockingHit)
-	{
-		// Red up to the blocking hit, green thereafter
-		DrawDebugLine(World, Start, OutHit.ImpactPoint, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugLine(World, OutHit.ImpactPoint, End, TraceHitColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugPoint(World, OutHit.ImpactPoint, 8.0, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-	else
-	{
-		// no hit means all red
-		DrawDebugLine(World, Start, End, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-}
-
-void UQuadrupedIKLibrary::DrawDebugSweptSphere(const UWorld* InWorld, FVector const& Start, FVector const& End, float Radius, FColor const& Color, bool bPersistentLines, float LifeTime, uint8 DepthPriority)
-{
-	FVector const TraceVec = End - Start;
-	float const Dist = TraceVec.Size();
-
-	FVector const Center = Start + TraceVec * 0.5f;
-	float const HalfHeight = (Dist * 0.5f) + Radius;
-
-	FQuat const CapsuleRot = FRotationMatrix::MakeFromZ(TraceVec).ToQuat();
-	::DrawDebugCapsule(InWorld, Center, HalfHeight, Radius, CapsuleRot, Color, bPersistentLines, LifeTime, DepthPriority);
-}
-
-void UQuadrupedIKLibrary::DrawDebugSphereTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, float Radius, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor)
-{
-	bool bPersistent = false;
-	float LifeTime = 0.0f;
-
-	if (bHit && OutHit.bBlockingHit)
-	{
-		// Red up to the blocking hit, green thereafter
-		DrawDebugSweptSphere(World, Start, OutHit.Location, Radius, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugSweptSphere(World, OutHit.Location, End, Radius, TraceHitColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugPoint(World, OutHit.ImpactPoint, 8.0, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-	else
-	{
-		// no hit means all red
-		DrawDebugSweptSphere(World, Start, End, Radius, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-}
-
-void UQuadrupedIKLibrary::DrawDebugSweptBox(const UWorld* InWorld, FVector const& Start, FVector const& End, FRotator const& Orientation, FVector const& HalfSize, FColor const& Color, bool bPersistentLines, float LifeTime, uint8 DepthPriority)
-{
-	FVector const TraceVec = End - Start;
-	float const Dist = TraceVec.Size();
-
-	FVector const Center = Start + TraceVec * 0.5f;
-
-	FQuat const CapsuleRot = FQuat(Orientation);
-	::DrawDebugBox(InWorld, Start, HalfSize, CapsuleRot, Color, bPersistentLines, LifeTime, DepthPriority);
-
-	//now draw lines from vertices
-	FVector Vertices[8];
-	Vertices[0] = Start + CapsuleRot.RotateVector(FVector(-HalfSize.X, -HalfSize.Y, -HalfSize.Z));	//flt
-	Vertices[1] = Start + CapsuleRot.RotateVector(FVector(-HalfSize.X, HalfSize.Y, -HalfSize.Z));	//frt
-	Vertices[2] = Start + CapsuleRot.RotateVector(FVector(-HalfSize.X, -HalfSize.Y, HalfSize.Z));	//flb
-	Vertices[3] = Start + CapsuleRot.RotateVector(FVector(-HalfSize.X, HalfSize.Y, HalfSize.Z));	//frb
-	Vertices[4] = Start + CapsuleRot.RotateVector(FVector(HalfSize.X, -HalfSize.Y, -HalfSize.Z));	//blt
-	Vertices[5] = Start + CapsuleRot.RotateVector(FVector(HalfSize.X, HalfSize.Y, -HalfSize.Z));	//brt
-	Vertices[6] = Start + CapsuleRot.RotateVector(FVector(HalfSize.X, -HalfSize.Y, HalfSize.Z));	//blb
-	Vertices[7] = Start + CapsuleRot.RotateVector(FVector(HalfSize.X, HalfSize.Y, HalfSize.Z));		//brb
-	for (int32 VertexIdx = 0; VertexIdx < 8; ++VertexIdx)
-	{
-		::DrawDebugLine(InWorld, Vertices[VertexIdx], Vertices[VertexIdx] + TraceVec, Color, bPersistentLines, LifeTime, DepthPriority);
-	}
-
-	::DrawDebugBox(InWorld, End, HalfSize, CapsuleRot, Color, bPersistentLines, LifeTime, DepthPriority);
-}
-
-void UQuadrupedIKLibrary::DrawDebugBoxTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, const FVector HalfSize, const FQuat Orientation, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor)
-{
-	bool bPersistent = false;
-	float LifeTime = 0.0f;
-
-	if (bHit && OutHit.bBlockingHit)
-	{
-		// Red up to the blocking hit, green thereafter
-		DrawDebugSweptBox(World, Start, OutHit.Location, FRotator(Orientation), HalfSize, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugSweptBox(World, OutHit.Location, End, FRotator(Orientation), HalfSize, TraceHitColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-		DrawDebugPoint(World, OutHit.ImpactPoint, 8.0f, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-	else
-	{
-		// no hit means all red
-		DrawDebugSweptBox(World, Start, End, FRotator(Orientation), HalfSize, TraceColor.ToFColor(true), bPersistent, LifeTime, ESceneDepthPriorityGroup::SDPG_Foreground);
-	}
-}
-
-void UQuadrupedIKLibrary::GetSimpleHitResult(TArray<FHitResult>& HitResults, const float NormalDotThreshold, FHitResult& OutHitResult)
-{
-	for (const FHitResult& Hit : HitResults)
+	for (const FHitResult& Hit : Hits)
 	{
 		const UPrimitiveComponent* HitComponent = Hit.GetComponent();
 		if (!IsValid(HitComponent))
@@ -279,19 +181,21 @@ void UQuadrupedIKLibrary::GetSimpleHitResult(TArray<FHitResult>& HitResults, con
 			continue;
 		}
 
-		if (Hit.GetActor() && Hit.GetActor()->IsA(ACharacter::StaticClass()))
+		if (Hit.GetActor())
 		{
-			continue;
+			if (Hit.GetActor()->IsA(ACharacter::StaticClass()))
+			{
+				continue;
+			}
 		}
 
 		const float ImpactNormalCos = FVector::DotProduct(FVector::ZAxisVector, Hit.ImpactNormal.GetSafeNormal());
-		if (ImpactNormalCos <= NormalDotThreshold)
+		if (ImpactNormalCos > NormalDotThreshold)
 		{
-			continue;
+			OutHitResult = Hit;
+			bIsOutHit = true;
+			break;
 		}
-
-		OutHitResult = Hit;
 	}
 }
-
 

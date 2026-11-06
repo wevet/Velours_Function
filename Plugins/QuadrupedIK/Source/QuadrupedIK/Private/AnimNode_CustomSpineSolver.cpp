@@ -4,13 +4,13 @@
 #include "QuadrupedIK.h"
 #include "QuadrupedIKLibrary.h"
 #include "PredictionAnimInstance.h"
+#include "WvAnimCollisionQuery.h"
 
 #include "Animation/AnimInstanceProxy.h"
 #include "DrawDebugHelpers.h"
 #include "AnimationRuntime.h"
 #include "AnimationCoreLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
-//#include "Kismet/KismetMathLibrary.h"
 #include "CollisionQueryParams.h"
 #include "Curves/CurveFloat.h"
 #include "Algo/Reverse.h"
@@ -1260,7 +1260,8 @@ void FAnimNode_CustomSpineSolver::ApplyLineTrace(
 		TraceLinearColor.Add(DebugColor.ToFColor(true));
 	}
 
-	UQuadrupedIKLibrary::GetSimpleHitResult(HitResults, NormalDotThreshold, OutHitResult);
+	bool bIsOutHit = false;
+	UQuadrupedIKLibrary::HandlePickHitResult(HitResults, OutHitResult, bIsOutHit, NormalDotThreshold);
 
 
 #if ENABLE_DRAW_DEBUG
@@ -1277,7 +1278,8 @@ void FAnimNode_CustomSpineSolver::ApplyLineTrace(
 				[=]() {
 					if (Editor_World.IsValid())
 					{
-						UQuadrupedIKLibrary::DrawDebugLineTraceSingle(Editor_World.Get(), StartLocation, EndLocation, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugLineTraceSingle(Editor_World.Get(), StartLocation, EndLocation,
+							OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -1290,7 +1292,8 @@ void FAnimNode_CustomSpineSolver::ApplyLineTrace(
 				[=]() {
 					if (Editor_World.IsValid())
 					{
-						UQuadrupedIKLibrary::DrawDebugSphereTraceSingle(Editor_World.Get(), StartLocation, EndLocation, LocalScale, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugSphereTraceSingle(Editor_World.Get(), StartLocation, EndLocation, LocalScale,
+							OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -1305,7 +1308,8 @@ void FAnimNode_CustomSpineSolver::ApplyLineTrace(
 					if (Editor_World.IsValid())
 					{
 						const FVector& Extent = FVector(1, 1, 0) * LocalScale;
-						UQuadrupedIKLibrary::DrawDebugBoxTraceSingle(Editor_World.Get(), StartLocation, EndLocation, Extent, FQuat::Identity, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugBoxTraceSingle(Editor_World.Get(), StartLocation, EndLocation, 
+							Extent, FQuat::Identity, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -1467,7 +1471,7 @@ void FAnimNode_CustomSpineSolver::ApplyMultiPointTraceBulk(
 
 				UWorld* DebugWorld = Editor_World.Get();
 
-				UQuadrupedIKLibrary::DrawDebugBoxTraceSingle(DebugWorld, StartLocation, EndLocation, LocalExtent, FQuat::Identity,
+				Wv::Anim::DrawDebugBoxTraceSingle(DebugWorld, StartLocation, EndLocation, LocalExtent, FQuat::Identity,
 					DebugSpineHit.bBlockingHit, DebugSpineHit, FLinearColor::Red, FLinearColor::Green);
 
 				auto DrawPickedHit = [&](const FHitResult& HitResult, const FColor& Color)
@@ -1496,7 +1500,8 @@ void FAnimNode_CustomSpineSolver::ApplyMultiPointTraceBulk(
 }
 
 
-void FAnimNode_CustomSpineSolver::SolveSpineIK(const FComponentSpacePoseContext& Output, FCSPose<FCompactPose>& MeshBases, TArray<FBoneTransform>& OutBoneTransforms)
+void FAnimNode_CustomSpineSolver::SolveSpineIK(const FComponentSpacePoseContext& Output,
+	FCSPose<FCompactPose>& MeshBases, TArray<FBoneTransform>& OutBoneTransforms)
 {
 	SCOPE_CYCLE_COUNTER(STAT_QuadrupedSpineSolver_Fabrik);
 
@@ -3716,11 +3721,9 @@ void FAnimNode_CustomSpineSolver::RequestTraceOnGameThread(
 		break;
 		}
 
+		bool bIsOutHit = false;
 		FHitResult BestHit;
-		UQuadrupedIKLibrary::GetSimpleHitResult(
-			HitResults,
-			LocalNormalDotThreshold,
-			BestHit);
+		UQuadrupedIKLibrary::HandlePickHitResult(HitResults, BestHit, bIsOutHit, LocalNormalDotThreshold);
 
 		SharedState->CompleteTrace(Key, BestHit);
 	},

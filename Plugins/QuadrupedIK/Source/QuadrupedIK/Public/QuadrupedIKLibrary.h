@@ -59,12 +59,5 @@ public:
 	static const bool DoesContainsNaN(const TArray<FBoneTransform>& BoneTransforms);
 
 
-	static void DrawDebugLineTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor);
-	static void DrawDebugSweptSphere(const UWorld* InWorld, FVector const& Start, FVector const& End, float Radius, FColor const& Color, bool bPersistentLines, float LifeTime, uint8 DepthPriority);
-	static void DrawDebugSphereTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, float Radius, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor);
-	static void DrawDebugSweptBox(const UWorld* InWorld, FVector const& Start, FVector const& End, FRotator const& Orientation, FVector const& HalfSize, FColor const& Color, bool bPersistentLines, float LifeTime, uint8 DepthPriority);
-	static void DrawDebugBoxTraceSingle(const UWorld* World, const FVector& Start, const FVector& End, const FVector HalfSize, const FQuat Orientation, bool bHit, const FHitResult& OutHit, FLinearColor TraceColor, FLinearColor TraceHitColor);
-
-
-	static void GetSimpleHitResult(TArray<FHitResult>& HitResults, const float NormalDotThreshold, FHitResult& OutHitResult);
+	static void HandlePickHitResult(const TArray<FHitResult>& Hits, FHitResult& OutHitResult, bool& bIsOutHit, const float NormalDotThreshold);
 };

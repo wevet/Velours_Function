@@ -4,24 +4,21 @@
 #include "PredictionAnimInstance.h"
 #include "QuadrupedIKLibrary.h"
 #include "QuadrupedIK.h"
-
+#include "WvAnimCollisionQuery.h"
 
 #include "Animation/AnimInstanceProxy.h"
 #include "DrawDebugHelpers.h"
 #include "AnimationRuntime.h"
 #include "AnimationCoreLibrary.h"
 #include "Kismet/KismetSystemLibrary.h"
-//#include "Kismet/KismetMathLibrary.h"
 #include "CollisionQueryParams.h"
 #include "Animation/InputScaleBias.h"
 #include "FABRIK.h"
 #include "Algo/Reverse.h"
 #include "Algo/Sort.h"
 #include "Algo/Transform.h"
-#include "GameFramework/Character.h"
-#include "GameFramework/CharacterMovementComponent.h"
 #include "ProfilingDebugging/CpuProfilerTrace.h"
-
+#include "GameFramework/Pawn.h"
 
 DECLARE_CYCLE_STAT(TEXT("CustomFeetSolver Eval"), STAT_CustomFeetSolver_Eval, STATGROUP_Anim);
 
@@ -2410,7 +2407,8 @@ void FAnimNode_CustomFeetSolver::ApplyLineTrace(
 				[=]() {
 					if (Editor_World.IsValid())
 					{
-						UQuadrupedIKLibrary::DrawDebugLineTraceSingle(Editor_World.Get(), StartLocation, EndLocation, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugLineTraceSingle(Editor_World.Get(), StartLocation, EndLocation, 
+							OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -2423,7 +2421,8 @@ void FAnimNode_CustomFeetSolver::ApplyLineTrace(
 				[=]() {
 					if (Editor_World.IsValid())
 					{
-						UQuadrupedIKLibrary::DrawDebugSphereTraceSingle(Editor_World.Get(), StartLocation, EndLocation, LocalScale, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugSphereTraceSingle(Editor_World.Get(), StartLocation, EndLocation, LocalScale,
+							OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -2438,7 +2437,8 @@ void FAnimNode_CustomFeetSolver::ApplyLineTrace(
 					if (Editor_World.IsValid())
 					{
 						const FVector& Extent = FVector(1, 1, 0) * LocalScale;
-						UQuadrupedIKLibrary::DrawDebugBoxTraceSingle(Editor_World.Get(), StartLocation, EndLocation, Extent, FQuat::Identity, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
+						Wv::Anim::DrawDebugBoxTraceSingle(Editor_World.Get(), StartLocation, EndLocation,
+							Extent, FQuat::Identity, OutHitResult.bBlockingHit, OutHitResult, FLinearColor::Red, DebugColor);
 					}
 				},
 				TStatId(), nullptr, ENamedThreads::GameThread
@@ -2507,7 +2507,7 @@ void FAnimNode_CustomFeetSolver::ApplyMultiPointTraceBulk(
 					continue;
 				}
 
-				if (Hit.GetActor() && Hit.GetActor()->IsA(ACharacter::StaticClass()))
+				if (Hit.GetActor() && Hit.GetActor()->IsA(APawn::StaticClass()))
 				{
 					continue;
 				}
