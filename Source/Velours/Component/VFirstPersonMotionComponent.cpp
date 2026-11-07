@@ -90,6 +90,8 @@ void UVFirstPersonMotionComponent::TickComponent(float DeltaTime, ELevelTick Tic
 	if (!PC || !Camera.IsValid() || !bFirstPerson)
 	{
 		bWasFirstPerson = bFirstPerson;
+
+		AimData.bActive = false;
 		return;
 	}
 
@@ -108,6 +110,8 @@ void UVFirstPersonMotionComponent::TickComponent(float DeltaTime, ELevelTick Tic
 
 	UpdateView(PC->GetControlRotation(), DeltaTime);
 	ApplyToCamera();
+
+	UpdateAimData();
 
 #if !(UE_BUILD_SHIPPING || UE_BUILD_TEST)
 	if (FirstPersonMotionCommand::CVarFPMotionDebug.GetValueOnGameThread())
@@ -212,5 +216,31 @@ void UVFirstPersonMotionComponent::DrawDebug() const
 		GEngine->AddOnScreenDebugMessage(reinterpret_cast<uint64>(this), 0.f, FColor::Cyan,
 			FString::Printf(TEXT("FPMotion AimOffset Yaw=%.2f Pitch=%.2f Aiming=%.2f"), Offset.Yaw, Offset.Pitch, AimingAlpha));
 	}
+}
+
+
+void UVFirstPersonMotionComponent::UpdateAimData()
+{
+	const UCameraComponent* Cam = Camera.Get();
+	if (!Cam)
+	{
+		AimData.bActive = false;
+		return;
+	}
+
+	// 起点はカメラの位置（頭のソケット）
+	const FVector Origin = Cam->GetComponentLocation();
+
+	const FQuat ViewQuat = ViewRotation.Quaternion();
+	const FQuat AimQuat = AimRotation.Quaternion();
+
+	AimData.bActive = true;
+	AimData.AimOffset = GetAimOffset();
+
+	AimData.HeadLookAtTarget = FTransform(ViewQuat, Origin + ViewQuat.GetForwardVector() * HeadTargetDistance);
+
+	const FVector AimPoint = Origin + AimQuat.GetForwardVector() * ArmTargetDistance;
+	AimData.RightArmTarget = FTransform(AimQuat, AimPoint + AimQuat.RotateVector(RightArmTargetOffset));
+	AimData.LeftArmTarget = FTransform(AimQuat, AimPoint + AimQuat.RotateVector(LeftArmTargetOffset));
 }
 

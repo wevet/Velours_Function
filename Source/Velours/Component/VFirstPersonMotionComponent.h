@@ -9,8 +9,34 @@
 class UCameraComponent;
 class APlayerController;
 
+
+USTRUCT(BlueprintType)
+struct VELOURS_API FVFirstPersonAimData
+{
+	GENERATED_BODY()
+
+	// 一人称で動いているか。falseのときはソルバーを切る
+	UPROPERTY(BlueprintReadOnly, Category = "FirstPersonAim")
+	bool bActive = false;
+
+	// 頭と上の背骨が向く先（見る方向）。CustomAimSolverのLookAtLocationへ
+	UPROPERTY(BlueprintReadOnly, Category = "FirstPersonAim")
+	FTransform HeadLookAtTarget = FTransform::Identity;
+
+	// 腕が向く先（狙いの方向）。ArmTargetLocationOverridesの右、左へ
+	UPROPERTY(BlueprintReadOnly, Category = "FirstPersonAim")
+	FTransform RightArmTarget = FTransform::Identity;
+
+	UPROPERTY(BlueprintReadOnly, Category = "FirstPersonAim")
+	FTransform LeftArmTarget = FTransform::Identity;
+
+	// 狙い - 見る回転（度）。腕の揺れや、UIの照準のずれに使う
+	UPROPERTY(BlueprintReadOnly, Category = "FirstPersonAim")
+	FRotator AimOffset = FRotator::ZeroRotator;
+};
+
 /**
-* 見る回転の追いかけ方 
+* 見る回転の追いかけ方
 */
 USTRUCT(BlueprintType)
 struct VELOURS_API FVFirstPersonViewSettings
@@ -80,6 +106,8 @@ public:
 	// 狙いが見る回転からどれだけずれているか（Yaw、Pitch。度）。段階2で腕の目標に使う
 	FRotator GetAimOffset() const;
 
+	const FVFirstPersonAimData& GetAimData() const { return AimData; }
+
 protected:
 	virtual void BeginPlay() override;
 
@@ -92,6 +120,21 @@ protected:
 	// 構えの切り替えにかける時間（秒）
 	UPROPERTY(EditAnywhere, Category = "FirstPersonMotion", meta = (ClampMin = 0.0))
 	float AimingBlendTime = 0.15f;
+
+	// 頭の目標までの距離（cm）。遠いほど、頭の向きが距離の変化に鈍くなる
+	UPROPERTY(EditAnywhere, Category = "FirstPersonMotion|Target", meta = (ClampMin = 10.0))
+	float HeadTargetDistance = 500.f;
+
+	// 腕の目標までの距離（cm）
+	UPROPERTY(EditAnywhere, Category = "FirstPersonMotion|Target", meta = (ClampMin = 10.0))
+	float ArmTargetDistance = 500.f;
+
+	// 腕の目標のずれ（狙いの向きの空間、cm）。両手が交差するのを避けたいときに使う
+	UPROPERTY(EditAnywhere, Category = "FirstPersonMotion|Target")
+	FVector RightArmTargetOffset = FVector::ZeroVector;
+
+	UPROPERTY(EditAnywhere, Category = "FirstPersonMotion|Target")
+	FVector LeftArmTargetOffset = FVector::ZeroVector;
 
 private:
 	APlayerController* GetPlayerController() const;
@@ -119,5 +162,9 @@ private:
 	float AimingAlpha = 0.f;
 	bool bAiming = false;
 	bool bWasFirstPerson = false;
+
+	void UpdateAimData();
+
+	FVFirstPersonAimData AimData;
 };
 

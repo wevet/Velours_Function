@@ -107,6 +107,15 @@ void UVAnimInstance::NativeUpdateAnimation(float DeltaSeconds)
 
 	TryGetCharacterMoverComponent();
 
+	if (!FirstPersonMotion.IsValid())
+	{
+		if (const AActor* Owner = GetOwningActor())
+		{
+			FirstPersonMotion = Owner->FindComponentByClass<UVFirstPersonMotionComponent>();
+		}
+	}
+
+	FirstPersonAimData = FirstPersonMotion.IsValid() ? FirstPersonMotion->GetAimData() : FVFirstPersonAimData();
 }
 
 void UVAnimInstance::NativeThreadSafeUpdateAnimation(float DeltaSeconds)

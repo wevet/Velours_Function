@@ -443,8 +443,16 @@ void APlayerCharacter::HandleAliveAction(const bool bIsPress)
 
 void APlayerCharacter::HandleHoldAimAction(const bool bIsPress)
 {
+
+	if (IsFPSControlMode())
+	{
+		FirstPersonMotionComponent->SetAiming(bIsPress);
+		return;
+	}
+
 	if (bIsPress)
 	{
+
 	}
 	else
 	{
@@ -793,7 +801,7 @@ void APlayerCharacter::RefreshVisual()
 	FName Socket = NAME_None;
 	if (FPSCamera && Visual->GetFirstPersonCameraAttachment(Parent, Socket))
 	{
-		//FPSCamera->AttachToComponent(Parent, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
+		FPSCamera->AttachToComponent(Parent, FAttachmentTransformRules::SnapToTargetNotIncludingScale, Socket);
 	}
 	else
 	{

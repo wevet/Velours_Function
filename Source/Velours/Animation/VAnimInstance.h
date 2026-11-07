@@ -7,8 +7,8 @@
 
 #include "Animation/AnimInstanceProxy.h"
 #include "Animation/AnimationAsset.h"
-//#include "Character/BaseCharacter.h"
 #include "GameplayEffectTypes.h"
+#include "Component/VFirstPersonMotionComponent.h"
 #include "PoseSearch/PoseSearchLibrary.h"
 #include "Logging/LogMacros.h"
 
@@ -96,6 +96,9 @@ public:
 
 	FVector GetPredictionStopLocation(const FVector& CurrentLocation) const;
 
+	UFUNCTION(BlueprintPure, Category = "VAnimInstance|FPS", meta = (BlueprintThreadSafe))
+	const FVFirstPersonAimData& GetFirstPersonAimData() const { return FirstPersonAimData; }
+
 protected:
 	TWeakObjectPtr<AActor> TargetActor;
 
@@ -132,8 +135,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "VAnimInstance|FPS")
 	float FPSTurnInPlaceThres{75.0f};
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VAnimInstance|FPS")
+	FVFirstPersonAimData FirstPersonAimData;
+
 private:
 	void TryGetCharacterMoverComponent();
+
+	TWeakObjectPtr<UVFirstPersonMotionComponent> FirstPersonMotion;
 };
 
 
