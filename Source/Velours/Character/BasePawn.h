@@ -44,6 +44,7 @@ class UBehaviorTree;
 class UCharacterMoverComponent;
 class UHitTargetComponent;
 class UCharacterMoverComponent;
+class UWvVisualComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogBaseCharacter, All, All)
 
@@ -382,6 +383,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UPredictionFootIKComponent> PredictionFootIKComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UWvVisualComponent> WvVisualComponent;
 #pragma endregion
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Config")

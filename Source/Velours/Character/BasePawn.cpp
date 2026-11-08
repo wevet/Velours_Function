@@ -11,6 +11,7 @@
 #include "Component/LocomotionComponent.h"
 #include "Component/WvFactionComponent.h"
 #include "Component/WvRelationshipComponent.h"
+#include "Component/WvVisualComponent.h"
 
 #include "Mission/MinimapMarkerComponent.h"
 #include "Game/WvGameInstance.h"
@@ -143,6 +144,10 @@ ABasePawn::ABasePawn(const FObjectInitializer& ObjectInitializer) : Super(Object
 
 	PredictionFootIKComponent = ObjectInitializer.CreateDefaultSubobject<UPredictionFootIKComponent>(this, TEXT("PredictionFootIKComponent"));
 	PredictionFootIKComponent->bAutoActivate = 1;
+
+	WvVisualComponent = ObjectInitializer.CreateDefaultSubobject<UWvVisualComponent>(this, TEXT("WvVisualComponent"));
+	WvVisualComponent->bAutoActivate = 1;
+	WvVisualComponent->bEnableVisualOverride = true;
 
 	MyTeamID = FGenericTeamId(0);
 	CharacterTag = FGameplayTag::RequestGameplayTag(TAG_Character_Default.GetTag().GetTagName());

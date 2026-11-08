@@ -698,6 +698,12 @@ void APlayerCharacter::Look(const FInputActionValue& Value)
 
 void APlayerCharacter::SetFPSMode(const bool bIsEnableFPS)
 {
+	const bool bWasFPSMode = IsFPSControlMode();
+	if (bIsEnableFPS == bWasFPSMode)
+	{
+		return;
+	}
+
 	UWvAbilitySystemComponent* ASC = GetWvAbilitySystemComponent();
 	if (ASC)
 	{

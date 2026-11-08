@@ -72,7 +72,11 @@ void UVFirstPersonMotionComponent::ResetView()
 	ViewRotation = AimRotation;
 	OffsetYaw = OffsetPitch = 0.f;
 	OffsetYawVelocity = OffsetPitchVelocity = 0.f;
+
+	AimingAlpha = bAiming ? 1.f : 0.f;
+
 	ApplyToCamera();
+	UpdateAimData();
 }
 
 FRotator UVFirstPersonMotionComponent::GetAimOffset() const
