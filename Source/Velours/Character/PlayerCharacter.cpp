@@ -457,6 +457,8 @@ void APlayerCharacter::HandleHoldAimAction(const bool bIsPress)
 	else
 	{
 	}
+
+	Super::SetAiming(bIsPress);
 }
 
 void APlayerCharacter::HandleQTEAction(const bool bIsPress)

@@ -3283,15 +3283,18 @@ void FAnimNode_CustomAimSolver::SolveAimIKSystem(FCSPose<FCompactPose>& MeshBase
 				FTransform Common_Spine_Modified_Transform = FTransform::Identity;
 				FVector Arm_LookTarget = LookAtLocation_WS.GetLocation();
 
-				if (bIsUseSeparateTargets)
+				if (bIsUseSeparateTargets && ArmTargetLocationOverrides.ArmTargetLocationOverrides.IsValidIndex(LIndex))
 				{
-					if (ArmTargetLocationOverrides.ArmTargetLocationOverrides.Num() > LIndex)
+					// ゲーム中は入力の値を使う
+					Arm_LookTarget = ArmTargetLocationOverrides.ArmTargetLocationOverrides[LIndex].OverrideArmTransform.GetLocation();
+
+#if WITH_EDITOR
+					// エディタのプレビューでは、デバッグの位置を使う
+					if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE && DebugHandTransforms.IsValidIndex(LIndex))
 					{
-						if (DebugHandTransforms.IsValidIndex(LIndex))
-						{
-							Arm_LookTarget = DebugHandTransforms[LIndex].GetLocation();
-						}
+						Arm_LookTarget = DebugHandTransforms[LIndex].GetLocation();
 					}
+#endif
 				}
 
 				for (int32 BodyIndex = 0; BodyIndex < HeadTransforms.Num(); BodyIndex++)
@@ -3452,14 +3455,17 @@ void FAnimNode_CustomAimSolver::SolveAimIKSystem(FCSPose<FCompactPose>& MeshBase
 
 						if (bIsOverrideHandRotation)
 						{
-							FQuat Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * LookAtLocation.GetRotation();
-							if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE)
+							// ゲーム中は腕の目標（AimRotation）の向きを使う
+							FQuat Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * OverrideData.OverrideArmTransform.GetRotation();
+
+#if WITH_EDITOR
+							// エディタのプレビューでは、デバッグの向きを使う
+							if (!SK->GetWorld()->IsGameWorld() && bIsWorkOutsidePIE && DebugHandTransforms.IsValidIndex(LIndex))
 							{
-								if (DebugHandTransforms.IsValidIndex(LIndex))
-								{
-									Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * DebugHandTransforms[LIndex].GetRotation();
-								}
+								Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * DebugHandTransforms[LIndex].GetRotation();
 							}
+#endif
+
 							Offseted_Hand_Transform.SetRotation(Offseted_Rotation_Value);
 						}
 
@@ -3471,6 +3477,7 @@ void FAnimNode_CustomAimSolver::SolveAimIKSystem(FCSPose<FCompactPose>& MeshBase
 							const FQuat Offseted_Rotation_Value = ComponentToWorld.GetRotation().Inverse() * LookAtLocation.GetRotation();
 							Offseted_Hand_Transform.SetRotation(Offseted_Rotation_Value);
 						}
+
 					}
 
 					AimHelper::Evaluate_TwoBoneIK_Direct_Modified(
