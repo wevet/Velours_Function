@@ -18,6 +18,7 @@
 #include "Animation/AnimSequence.h"
 #include "EditorFramework/AssetImportData.h"
 #include "Misc/Paths.h"
+#include "ScopedTransaction.h"
 
 #include "SkeletonModifier.h"
 #include "Engine/SkeletalMesh.h"
@@ -896,72 +897,126 @@ void UWvEditorBlueprintFunctionLibrary::CopySkeletalSlots(USkeleton* SourceSkele
 	UE_LOG(LogTemp, Log, TEXT("Slots Copy Completed"));
 }
 
+
 void UWvEditorBlueprintFunctionLibrary::CopySkeletalVirtualBones(USkeleton* SourceSkeleton, const TArray<USkeleton*>& TargetSkeletons)
 {
+#if WITH_EDITOR
 	if (!SourceSkeleton)
 	{
 		UE_LOG(LogTemp, Error, TEXT("nullptr source skeleton"));
 		return;
 	}
 
-	// 取得：元スケルトンの仮想ボーン一覧
-	const TArray<FVirtualBone>& SourceVBones = SourceSkeleton->GetVirtualBones();
+	// 参照ではなくコピー（Source==Target のケースでも安全に）
+	const TArray<FVirtualBone> SourceVBones = SourceSkeleton->GetVirtualBones();
 
 	for (USkeleton* TargetSkeleton : TargetSkeletons)
 	{
-		if (!TargetSkeleton)
+		if (!TargetSkeleton || TargetSkeleton == SourceSkeleton)
 		{
-			UE_LOG(LogTemp, Warning, TEXT("Skipping null TargetSkeleton"));
 			continue;
 		}
 
+		FScopedTransaction Transaction(NSLOCTEXT("WvEditor", "CopyVirtualBones", "Copy Virtual Bones"));
 		TargetSkeleton->Modify();
-		TargetSkeleton->MarkPackageDirty();
 
-		// 既存の仮想ボーンをハッシュ化してセットを作成
-		TSet<uint64> ExistingVBHashes;
-		for (const FVirtualBone& VB : TargetSkeleton->GetVirtualBones())
+		auto FindTargetVB = [TargetSkeleton](FName Name) -> const FVirtualBone*
+			{
+				return TargetSkeleton->GetVirtualBones().FindByPredicate(
+					[Name](const FVirtualBone& VB) { return VB.VirtualBoneName == Name; });
+			};
+
+		// 実ボーン or 既存VB として存在するか
+		auto BoneExists = [TargetSkeleton, &FindTargetVB](FName Name)
+			{
+				return TargetSkeleton->GetReferenceSkeleton().FindRawBoneIndex(Name) != INDEX_NONE
+					|| FindTargetVB(Name) != nullptr;
+			};
+
+		TArray<const FVirtualBone*> Pending;
+		for (const FVirtualBone& VB : SourceVBones)
 		{
-			uint64 Hash = HashCombine(HashCombine(GetTypeHash(VB.SourceBoneName), GetTypeHash(VB.TargetBoneName)), GetTypeHash(VB.VirtualBoneName));
-			ExistingVBHashes.Add(Hash);
+			Pending.Add(&VB);
 		}
 
-		// コピー対象をループ
 		int32 Copied = 0, Skipped = 0;
-		for (const FVirtualBone& SrcVB : SourceVBones)
+		bool bProgress = true;
+
+		// 親VBが先に作られるよう、進展がなくなるまで繰り返す
+		while (Pending.Num() > 0 && bProgress)
 		{
-			uint64 Hash = HashCombine(HashCombine(GetTypeHash(SrcVB.SourceBoneName), GetTypeHash(SrcVB.TargetBoneName)), GetTypeHash(SrcVB.VirtualBoneName));
+			bProgress = false;
 
-			if (ExistingVBHashes.Contains(Hash))
+			for (int32 i = 0; i < Pending.Num();)
 			{
-				UE_LOG(LogTemp, Warning, TEXT("Skipping existing virtual bone: %s (Src:%s, Tgt:%s)"), *SrcVB.VirtualBoneName.ToString(), *SrcVB.SourceBoneName.ToString(), *SrcVB.TargetBoneName.ToString());
-				Skipped++;
-				continue;
-			}
+				const FVirtualBone& SrcVB = *Pending[i];
 
-			// 新規仮想ボーンを追加
-			FName NewVBName = SrcVB.VirtualBoneName;
-			const bool bAdded = TargetSkeleton->AddNewVirtualBone(SrcVB.SourceBoneName, SrcVB.TargetBoneName, NewVBName);
+				// 同名が既にある
+				if (const FVirtualBone* Existing = FindTargetVB(SrcVB.VirtualBoneName))
+				{
+					if (Existing->SourceBoneName != SrcVB.SourceBoneName || Existing->TargetBoneName != SrcVB.TargetBoneName)
+					{
+						UE_LOG(LogTemp, Warning, TEXT("[%s] Name conflict: %s (existing Src:%s Tgt:%s / source Src:%s Tgt:%s)"),
+							*TargetSkeleton->GetName(), *SrcVB.VirtualBoneName.ToString(),
+							*Existing->SourceBoneName.ToString(), *Existing->TargetBoneName.ToString(),
+							*SrcVB.SourceBoneName.ToString(), *SrcVB.TargetBoneName.ToString());
+					}
+					Skipped++;
+					Pending.RemoveAt(i);
+					bProgress = true;
+					continue;
+				}
 
-			if (bAdded)
-			{
-				UE_LOG(LogTemp, Log, TEXT("Copied virtual bone: %s (Src:%s, Tgt:%s)"), *NewVBName.ToString(), *SrcVB.SourceBoneName.ToString(), *SrcVB.TargetBoneName.ToString());
-				Copied++;
-			}
-			else
-			{
-				UE_LOG(LogTemp, Warning, TEXT("Failed to copy virtual bone: %s"), *SrcVB.VirtualBoneName.ToString());
-				Skipped++;
+				// 親（Source）/ Target がまだ無い → 後回し
+				if (!BoneExists(SrcVB.SourceBoneName) || !BoneExists(SrcVB.TargetBoneName))
+				{
+					++i;
+					continue;
+				}
+
+				FName GeneratedName;
+				if (TargetSkeleton->AddNewVirtualBone(SrcVB.SourceBoneName, SrcVB.TargetBoneName, GeneratedName))
+				{
+					if (GeneratedName != SrcVB.VirtualBoneName)
+					{
+						TargetSkeleton->RenameVirtualBone(GeneratedName, SrcVB.VirtualBoneName);
+					}
+					UE_LOG(LogTemp, Log, TEXT("[%s] Copied: %s (Src:%s, Tgt:%s)"),
+						*TargetSkeleton->GetName(), *SrcVB.VirtualBoneName.ToString(),
+						*SrcVB.SourceBoneName.ToString(), *SrcVB.TargetBoneName.ToString());
+					Copied++;
+				}
+				else
+				{
+					// 同じ Source/Target の組み合わせが別名で既に存在する等
+					UE_LOG(LogTemp, Warning, TEXT("[%s] AddNewVirtualBone failed: %s (Src:%s, Tgt:%s)"),
+						*TargetSkeleton->GetName(), *SrcVB.VirtualBoneName.ToString(),
+						*SrcVB.SourceBoneName.ToString(), *SrcVB.TargetBoneName.ToString());
+					Skipped++;
+				}
+
+				Pending.RemoveAt(i);
+				bProgress = true;
 			}
 		}
 
-		TargetSkeleton->MarkPackageDirty();
-		TargetSkeleton->Modify();
-		UE_LOG(LogTemp, Log, TEXT("Virtual Bone Copy Completed for '%s' | Copied: %d | Skipped: %d"), *TargetSkeleton->GetName(), Copied, Skipped);
-	}
+		// 最後まで親が見つからなかったもの
+		for (const FVirtualBone* VB : Pending)
+		{
+			UE_LOG(LogTemp, Error, TEXT("[%s] Missing bone, not copied: %s (Src:%s, Tgt:%s)"),
+				*TargetSkeleton->GetName(), *VB->VirtualBoneName.ToString(),
+				*VB->SourceBoneName.ToString(), *VB->TargetBoneName.ToString());
+			Skipped++;
+		}
 
-	UE_LOG(LogTemp, Log, TEXT("All Virtual Bone Copy operations completed."));
+		TargetSkeleton->MarkPackageDirty();
+		UE_LOG(LogTemp, Log, TEXT("Virtual Bone Copy Completed for '%s' | Copied: %d | Skipped: %d"),
+			*TargetSkeleton->GetName(), Copied, Skipped);
+	}
+#endif
 }
+
+
 
 void UWvEditorBlueprintFunctionLibrary::CopySkeletonCurves(USkeleton* SourceSkeleton, const TArray<USkeleton*>& TargetSkeletons)
 {
