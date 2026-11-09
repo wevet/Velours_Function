@@ -52,5 +52,10 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	static void CopySkeletonCurves(USkeleton* SourceSkeleton, const TArray<USkeleton*>& TargetSkeletons);
+
+	static bool AddMannequinIKBones(USkeletalMesh* Mesh);
+
+	UFUNCTION(BlueprintCallable)
+	static void AddIKBonesToAllMeshesOf(USkeleton* Skeleton);
 };
 

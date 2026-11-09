@@ -10,21 +10,83 @@
 #include "Animation/Skeleton.h"
 #include "Animation/BlendProfile.h"
 #include "Engine/SkeletalMeshSocket.h"
-//#include "Logging/LogMacros.h
-#include "AssetRegistry/AssetRegistryModule.h"
 #include "AnimationBlueprintLibrary.h"
 #include "Animation/SmartName.h"
 #include "Containers/Array.h"
 #include "Misc/PackageName.h"
 #include "Animation/AnimTypes.h"
-//#include "IAnimationDataModelModule.h"     // IAnimationDataModelModule
-//#include "CurveMetaDataModel.h"           // FCurveMetaDataModel
 #include "Animation/AnimSequence.h"
-#include "EditorReimportHandler.h"
 #include "EditorFramework/AssetImportData.h"
 #include "Misc/Paths.h"
 
+#include "SkeletonModifier.h"
+#include "Engine/SkeletalMesh.h"
+
 #include UE_INLINE_GENERATED_CPP_BY_NAME(WvEditorBlueprintFunctionLibrary)
+
+namespace WvEditorHelper
+{
+	// Export されていない UFUNCTION を名前で呼ぶ（引数は宣言順、型は完全一致で渡す）
+	template<typename RetT, typename... ArgTs>
+	RetT CallUFunc(UObject* Obj, FName FuncName, const ArgTs&... Args)
+	{
+		UFunction* Func = Obj->FindFunctionChecked(FuncName);
+		FStructOnScope Params(Func);
+		uint8* Buf = Params.GetStructMemory();
+
+		TArray<FProperty*> InProps;
+		FProperty* RetProp = nullptr;
+		for (TFieldIterator<FProperty> It(Func); It && It->HasAnyPropertyFlags(CPF_Parm); ++It)
+		{
+			if (It->HasAnyPropertyFlags(CPF_ReturnParm)) { RetProp = *It; }
+			else { InProps.Add(*It); }
+		}
+		check(InProps.Num() == sizeof...(ArgTs));
+
+		int32 Index = 0;
+		auto SetArg = [&](const auto& Value)
+			{
+				FProperty* Prop = InProps[Index++];
+				check(Prop->GetSize() == sizeof(Value));
+				FMemory::Memcpy(Prop->ContainerPtrToValuePtr<void>(Buf), &Value, sizeof(Value));
+			};
+		(SetArg(Args), ...);
+
+		Obj->ProcessEvent(Func, Buf);
+
+		if constexpr (!std::is_void_v<RetT>)
+		{
+			check(RetProp && RetProp->GetSize() == sizeof(RetT));
+			RetT Out{};
+			FMemory::Memcpy(&Out, RetProp->ContainerPtrToValuePtr<void>(Buf), sizeof(RetT));
+			return Out;
+		}
+	}
+
+	FTransform GetBoneTransform(USkeletonModifier* Mod, FName Bone, bool bGlobal)
+	{
+		return CallUFunc<FTransform>(Mod, TEXT("GetBoneTransform"), Bone, bGlobal);
+	}
+
+	bool AddBoneAt(USkeletonModifier* Mod, FName Bone, FName Parent, FName CopyFrom)
+	{
+		const TArray<FName> Existing = CallUFunc<TArray<FName>>(Mod, TEXT("GetAllBoneNames"));
+		if (Existing.Contains(Bone))
+		{
+			return true; // 既にあればスキップ（再実行対策）
+		}
+
+		FTransform Local = FTransform::Identity;
+		if (!CopyFrom.IsNone())
+		{
+			const FTransform SrcGlobal = GetBoneTransform(Mod, CopyFrom, true);
+			const FTransform ParentGlobal = GetBoneTransform(Mod, Parent, true);
+			Local = SrcGlobal.GetRelativeTransform(ParentGlobal);
+		}
+		return CallUFunc<bool>(Mod, TEXT("AddBone"), Bone, Parent, Local);
+	}
+}
+
 
 bool UWvEditorBlueprintFunctionLibrary::RestoreUEFNAnimationImportPathsAndReimport()
 {
@@ -946,6 +1008,60 @@ void UWvEditorBlueprintFunctionLibrary::CopySkeletonCurves(USkeleton* SourceSkel
 			UE_LOG(LogTemp, Log, TEXT("curve '%s' to '%s'"), *Name.ToString(), *TargetSkeleton->GetName());
 		}
 		UE_LOG(LogTemp, Warning, TEXT("CopySkeletonCurves for '%s' completed: Added=%d, Skipped=%d"), *TargetSkeleton->GetName(), Added, Skipped);
+	}
+}
+
+bool UWvEditorBlueprintFunctionLibrary::AddMannequinIKBones(USkeletalMesh* Mesh)
+{
+	if (!Mesh) return false;
+
+	USkeletonModifier* Mod = NewObject<USkeletonModifier>();
+	if (!WvEditorHelper::CallUFunc<bool>(Mod, TEXT("SetSkeletalMesh"), Mesh))
+	{
+		return false;
+	}
+
+	using namespace WvEditorHelper;
+	AddBoneAt(Mod, TEXT("ik_foot_root"), TEXT("root"), NAME_None);
+	AddBoneAt(Mod, TEXT("ik_foot_l"), TEXT("ik_foot_root"), TEXT("foot_l"));
+	AddBoneAt(Mod, TEXT("ik_foot_r"), TEXT("ik_foot_root"), TEXT("foot_r"));
+
+	AddBoneAt(Mod, TEXT("ik_hand_root"), TEXT("root"), NAME_None);
+	AddBoneAt(Mod, TEXT("ik_hand_gun"), TEXT("ik_hand_root"), TEXT("hand_r"));
+	AddBoneAt(Mod, TEXT("ik_hand_l"), TEXT("ik_hand_gun"), TEXT("hand_l"));
+	AddBoneAt(Mod, TEXT("ik_hand_r"), TEXT("ik_hand_gun"), TEXT("hand_r"));
+
+	AddBoneAt(Mod, TEXT("interaction"), TEXT("root"), NAME_None);
+	AddBoneAt(Mod, TEXT("center_of_mass"), TEXT("root"), NAME_None);
+
+	const bool bOk = WvEditorHelper::CallUFunc<bool>(Mod, TEXT("CommitSkeletonToSkeletalMesh"));
+	if (bOk)
+	{
+		Mesh->MarkPackageDirty();
+	}
+
+	return bOk;
+}
+
+void UWvEditorBlueprintFunctionLibrary::AddIKBonesToAllMeshesOf(USkeleton* Skeleton)
+{
+	IAssetRegistry& AR = FModuleManager::LoadModuleChecked<FAssetRegistryModule>("AssetRegistry").Get();
+
+	FARFilter Filter;
+	Filter.ClassPaths.Add(USkeletalMesh::StaticClass()->GetClassPathName());
+	Filter.bRecursiveClasses = true;
+	Filter.TagsAndValues.Add(TEXT("Skeleton"), FAssetData(Skeleton).GetExportTextName());
+
+	TArray<FAssetData> Assets;
+	AR.GetAssets(Filter, Assets);
+
+	for (const FAssetData& Data : Assets)
+	{
+		if (USkeletalMesh* Mesh = Cast<USkeletalMesh>(Data.GetAsset()))
+		{
+			const bool bOk = AddMannequinIKBones(Mesh);
+			UE_LOG(LogTemp, Log, TEXT("%s : %s"), *Mesh->GetName(), bOk ? TEXT("OK") : TEXT("Failed"));
+		}
 	}
 }
 

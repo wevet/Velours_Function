@@ -40,6 +40,7 @@ public class VeloursEditor : ModuleRules
 				"PlacementMode",
 				"DeveloperSettings",
 				"EditorScriptingUtilities",
+				"SkeletalMeshModifiers",
 			}
 		);
 
