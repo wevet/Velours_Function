@@ -10,6 +10,7 @@
 
 class UCapsuleComponent;
 class UWvSkeletalMeshComponent;
+class AVMetaHumanVisualActor;
 
 /**
  * 
@@ -64,6 +65,9 @@ protected:
 
 public:
 	AActor* GetVisualActor() const;
+
+	UFUNCTION(BlueprintCallable)
+	AVMetaHumanVisualActor* GetMetaHumanVisualActor() const;
 };
 
 

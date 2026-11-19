@@ -133,3 +133,8 @@ bool AVMetaHumanVisualActor::GetFirstPersonCameraAttachment(USceneComponent*& Ou
 	return true;
 }
 
+bool AVMetaHumanVisualActor::IsHeadHidden() const
+{
+	return bIsHeadHidden && bFirstPersonView;
+}
+

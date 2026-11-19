@@ -15,6 +15,7 @@
 #include "Component/WvRelationshipComponent.h"
 #include "Component/LocomotionComponent.h"
 #include "Component/VFirstPersonMotionComponent.h"
+#include "Component/WvCharacterMoverComponent.h"
 
 #include "Mission/MinimapMarkerComponent.h"
 #include "GameExtension.h"
@@ -40,9 +41,6 @@
 #include "GroomComponent.h"
 #include "GameFramework/GameplayCameraComponent.h"
 
-// mover
-#include "DefaultMovementSet/CharacterMoverComponent.h"
-#include "MoveLibrary/MovementMixer.h"
 
 
 #include UE_INLINE_GENERATED_CPP_BY_NAME(PlayerCharacter)
@@ -245,37 +243,40 @@ void APlayerCharacter::NotifyControllerChanged()
 void APlayerCharacter::ProduceInput_Implementation(int32 SimTimeMs, FMoverInputCmdContext& InputCmdResult)
 {
 
-	//Super::ProduceInput(SimTimeMs, InputCmdResult);
-
-
-	FCharacterDefaultInputs& Inputs = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FCharacterDefaultInputs>();
-
-	const bool bIsFPSControlMode = IsFPSControlMode();
-
-	if (!bIsFPSControlMode)
+	if (WvCharacterMoverComponent == nullptr || LocomotionComponent == nullptr)
 	{
-		const FRotator ControlRotation = GetControlRotation();
-		const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
-
-		const FVector Forward = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
-		const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
-		const FVector MoveDirection = (Forward * MovementInput.Y + Right * MovementInput.X).GetClampedToMaxSize(1.0f);
-
-		Inputs.SetMoveInput(EMoveInputType::DirectionalIntent, MoveDirection);
-		Inputs.OrientationIntent = MoveDirection;
-		Inputs.ControlRotation = ControlRotation;
 		return;
 	}
 
+	FCharacterDefaultInputs& Inputs = InputCmdResult.InputCollection.FindOrAddMutableDataByType<FCharacterDefaultInputs>();
 
-	const float DeltaSeconds = SimTimeMs * 0.001f;
-	const float ControlYaw = Inputs.ControlRotation.Yaw;
+	// 移動の入力は、TPSとFPSで共通
+	const FRotator ControlRotation = GetControlRotation();
+	const FRotator YawRotation(0.0f, ControlRotation.Yaw, 0.0f);
+	const FVector Forward = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::X);
+	const FVector Right = FRotationMatrix(YawRotation).GetUnitAxis(EAxis::Y);
+	const FVector MoveDirection = (Forward * MovementInput.Y + Right * MovementInput.X).GetClampedToMaxSize(1.0f);
+
+	Inputs.SetMoveInput(EMoveInputType::DirectionalIntent, MoveDirection);
+	Inputs.ControlRotation = ControlRotation;
+
+	if (!IsFPSControlMode())
+	{
+		Inputs.OrientationIntent = MoveDirection;
+		return;
+	}
+
+	// SimTimeMs は累計時間なので、前回との差を経過時間にする
+	const float DeltaSeconds = (LastProduceInputSimTimeMs >= 0)
+		? FMath::Max(0, SimTimeMs - LastProduceInputSimTimeMs) * 0.001f
+		: 0.f;
+	LastProduceInputSimTimeMs = SimTimeMs;
+
+	const float ControlYaw = ControlRotation.Yaw;
 
 	const FLocomotionEssencialVariables& LocomotionEssencialVariables = LocomotionComponent->GetLocomotionEssencialVariables();
-	const bool IsMoving = CharacterMoverComponent->GetVelocity().Size2D() > 0.0f;
+	const bool IsMoving = WvCharacterMoverComponent->GetVelocity().Size2D() > 0.0f;
 
-	// 据え置きは「静止 かつ Aim/Strafe」のときだけ。
-	// 移動中に効かせるとロコモーションの旋回が粘って気持ち悪くなる。
 	const bool bShouldHold = IsMoving && (LocomotionEssencialVariables.bAiming ||
 		LocomotionEssencialVariables.LSRotationMode == ELSRotationMode::LookingDirection);
 
@@ -286,12 +287,10 @@ void APlayerCharacter::ProduceInput_Implementation(int32 SimTimeMs, FMoverInputC
 	}
 	else
 	{
-		// 移動中は Super が入れた OrientationIntent をそのまま使い、
-		// 据え置き状態だけ現在値に合わせておく
 		YawHold.SnapTo(ControlYaw);
+		Inputs.OrientationIntent = YawRotation.Vector();
 	}
 
-	// ABP 側が読む乖離量（S Mover CustomInputs に載せる）
 	HeldYawDelta = YawHold.GetHeldDelta(ControlYaw);
 }
 
@@ -382,6 +381,11 @@ void APlayerCharacter::HandleSprinting(const bool bIsPress)
 	else
 	{
 	}
+
+	if (GetLocomotionComponent())
+	{
+		GetLocomotionComponent()->SetSprintPressed(bIsPress);
+	}
 }
 
 void APlayerCharacter::HandleWalking(const bool bIsPress)
@@ -396,6 +400,7 @@ void APlayerCharacter::HandleMeleeAction(const bool bIsPress)
 	// @TODO
 	if (IsFPSControlMode())
 	{
+		BP_HandleMeleeAction_FPS(bIsPress);
 		return;
 	}
 
@@ -447,7 +452,6 @@ void APlayerCharacter::HandleHoldAimAction(const bool bIsPress)
 	if (IsFPSControlMode())
 	{
 		FirstPersonMotionComponent->SetAiming(bIsPress);
-		return;
 	}
 
 	if (bIsPress)
@@ -753,6 +757,8 @@ void APlayerCharacter::SetFPSMode(const bool bIsEnableFPS)
 
 	}
 
+
+	LocomotionComponent->SetRotationMode(bIsEnableFPS ? ELSRotationMode::LookingDirection : ELSRotationMode::VelocityDirection);
 }
 
 bool APlayerCharacter::IsFPSControlMode() const

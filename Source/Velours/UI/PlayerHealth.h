@@ -43,5 +43,7 @@ protected:
 public:
 	void Initializer(ABasePawn* InCharacter);
 	void Renderer(const float DeltaTime);
+
+	void Visibility(const bool InVisibility);
 };
 

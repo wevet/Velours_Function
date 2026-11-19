@@ -33,6 +33,8 @@ public:
 	void Renderer(const float DeltaTime);
 	void SetTickableWhenPaused();
 
+	void Visibility(const bool InVisibility);
+
 protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "MainUI|Variable")
 	TObjectPtr<class ABasePawn> CharacterOwner;

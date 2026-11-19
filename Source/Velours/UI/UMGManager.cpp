@@ -38,6 +38,7 @@ void UUMGManager::BeginDestroy()
 
 void UUMGManager::Initializer(ABasePawn* NewCharacter)
 {
+	PC = NewCharacter;
 
 	CombatUIController = CreateWidget<UCombatUIController>(this, CombatUIControllerTemplate);
 	if (CombatUIController)
@@ -110,6 +111,7 @@ void UUMGManager::VisibleCombatUI(const bool bIsVisible)
 	if (IsValid(CombatUIController))
 	{
 		CombatUIController->SetVisibility(bIsVisible ? ESlateVisibility::Visible : ESlateVisibility::Hidden);
+		CombatUIController->Visibility(bIsVisible);
 	}
 }
 

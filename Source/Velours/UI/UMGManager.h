@@ -64,6 +64,8 @@ private:
 	UPROPERTY()
 	TObjectPtr<class UCombatUIController> CombatUIController{ nullptr };
 
+	TWeakObjectPtr<class ABasePawn> PC;
+
 	void SetTickableWhenPaused();
 
 	bool bIsInInitialized{false};

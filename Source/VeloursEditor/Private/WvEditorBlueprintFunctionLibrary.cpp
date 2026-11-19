@@ -74,6 +74,7 @@ namespace WvEditorHelper
 		const TArray<FName> Existing = CallUFunc<TArray<FName>>(Mod, TEXT("GetAllBoneNames"));
 		if (Existing.Contains(Bone))
 		{
+			UE_LOG(LogTemp, Log, TEXT("already has bone : %s"), *Bone.ToString());
 			return true; // 既にあればスキップ（再実行対策）
 		}
 
@@ -1088,6 +1089,7 @@ bool UWvEditorBlueprintFunctionLibrary::AddMannequinIKBones(USkeletalMesh* Mesh)
 
 	AddBoneAt(Mod, TEXT("interaction"), TEXT("root"), NAME_None);
 	AddBoneAt(Mod, TEXT("center_of_mass"), TEXT("root"), NAME_None);
+	AddBoneAt(Mod, TEXT("attach"), TEXT("root"), NAME_None);
 
 	const bool bOk = WvEditorHelper::CallUFunc<bool>(Mod, TEXT("CommitSkeletonToSkeletalMesh"));
 	if (bOk)

@@ -2,6 +2,7 @@
 
 
 #include "UI/CombatUIController.h"
+
 #include "Component/CombatComponent.h"
 #include "Component/InventoryComponent.h"
 #include "Component/LocomotionComponent.h"
@@ -25,10 +26,10 @@ void UCombatUIController::NativeConstruct()
 	Super::NativeConstruct();
 
 
-	if (WeaponFocusWidget)
-	{
-		WeaponFocusWidget->Visibility(false);
-	}
+
+	WeaponFocusWidget->Visibility(false);
+	PlayerHealthWidget->Visibility(false);
+	PlayerSkillWidget->Visibility(false);
 }
 
 void UCombatUIController::BeginDestroy()
@@ -132,6 +133,16 @@ void UCombatUIController::OnOverlayChange_Callback(const ELSOverlayState Current
 
 void UCombatUIController::FocusWeaponWindowRenderer()
 {
+	if (!IsValid(CharacterOwner))
+	{
+		return;
+	}
+
+	if (!IsValid(CharacterOwner->GetLocomotionComponent()))
+	{
+		return;
+	}
+
 	const auto& LocomotionEssencialVariables = CharacterOwner->GetLocomotionComponent()->GetLocomotionEssencialVariables();
 	bool bIsCurAimingWeapon = CharacterOwner->GetInventoryComponent()->CanAimingWeapon();
 	bIsCurAimingWeapon &= LocomotionEssencialVariables.bAiming;
@@ -187,5 +198,10 @@ void UCombatUIController::CreateWeaponWindow(UUniformGridPanel* GridPanel)
 	}
 }
 
+void UCombatUIController::Visibility(const bool InVisibility)
+{
+	PlayerHealthWidget->Visibility(InVisibility);
+	PlayerSkillWidget->Visibility(InVisibility);
+}
 
 

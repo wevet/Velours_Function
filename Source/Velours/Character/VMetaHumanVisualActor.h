@@ -49,14 +49,23 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "FirstPerson")
 	FName ExtraHiddenTag = TEXT("FPHidden");
 
+	UPROPERTY(EditDefaultsOnly, Category = "FirstPerson")
+	bool bIsHeadHidden{false};
+
+	UFUNCTION(BlueprintCallable)
+	USkeletalMeshComponent* GetMainMesh() const { return BodyMesh; }
+
+	UFUNCTION(BlueprintCallable)
+	bool IsHeadHidden() const;
+
 private:
 	void CacheComponents();
 	void ApplyHeadVisibility();
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	TObjectPtr<USkeletalMeshComponent> BodyMesh;
 
-	UPROPERTY(Transient)
+	UPROPERTY()
 	TArray<TObjectPtr<UPrimitiveComponent>> HeadPrimitives;
 
 	bool bFirstPersonView = false;

@@ -81,11 +81,14 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class USkeletalMeshComponent> SkeletalMeshComponent;
 
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class USceneComponent> SceneComponent;
+
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")
 	FName WeaponKeyName;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")
-	UWeaponParameterDataAsset* WeaponParameterDA;
+	TObjectPtr<class UWeaponParameterDataAsset> WeaponParameterDA;
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")
 	FGameplayTag Itemtag{ FGameplayTag::EmptyTag };

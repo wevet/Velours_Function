@@ -3,6 +3,8 @@
 #include "Component/WvVisualComponent.h"
 #include "Character/BasePawn.h"
 #include "Character/VVisualOverrideProvider.h"
+#include "Game/WvGameInstance.h"
+
 #include "Components/ChildActorComponent.h"
 #include "Components/SkeletalMeshComponent.h"
 #include "Engine/AssetManager.h"
@@ -107,7 +109,8 @@ void UWvVisualComponent::LoadVisualOverride(const TSoftClassPtr<AActor>& AssetCl
 		return;
 	}
 
-	FStreamableManager& Streamable = UAssetManager::GetStreamableManager();
+	FStreamableManager& Streamable = UWvGameInstance::GetStreamableManager();
+
 	LoadHandle = Streamable.RequestAsyncLoad(
 		AssetClass.ToSoftObjectPath(),
 		FStreamableDelegate::CreateUObject(this, &UWvVisualComponent::HandleLoaded, AssetClass));
@@ -122,6 +125,7 @@ void UWvVisualComponent::HandleLoaded(TSoftClassPtr<AActor> AssetClass)
 	{
 		UE_LOG(LogWvVisual, Warning, TEXT("[%s] Failed to load %s."), *FString(__FUNCTION__), *AssetClass.ToString());
 	}
+
 	SetVisualOverride(Loaded);
 }
 

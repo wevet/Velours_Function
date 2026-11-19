@@ -45,6 +45,7 @@ class UCharacterMoverComponent;
 class UHitTargetComponent;
 class UCharacterMoverComponent;
 class UWvVisualComponent;
+class UWvCharacterMoverComponent;
 
 DECLARE_LOG_CATEGORY_EXTERN(LogBaseCharacter, All, All)
 
@@ -89,6 +90,11 @@ public:
 
 #if WITH_EDITOR
 	virtual void PostEditChangeProperty(struct FPropertyChangedEvent& PropertyChangedEvent) override;
+#endif
+
+	virtual void PostLoad() override;
+#if WITH_EDITOR
+	virtual void PostCDOCompiled(const FPostCDOCompiledContext& Context) override;
 #endif
 
 protected:
@@ -240,6 +246,7 @@ public:
 
 	static FName NearlestTarget;
 
+
 public:
 #pragma region Components
 	virtual class UWvSkeletalMeshComponent* GetWvSkeletalMeshComponent() const;
@@ -386,6 +393,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
 	TObjectPtr<class UWvVisualComponent> WvVisualComponent;
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component, meta = (AllowPrivateAccess = "true"))
+	TObjectPtr<class UWvCharacterMoverComponent> WvCharacterMoverComponent;
 #pragma endregion
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Config")
@@ -418,11 +428,13 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Config")
 	FFinisherConfig FinisherConfig;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Config")
+	bool bIsAllowRepairComponents{false};
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "BaseCharacter|Config")
 	ELSOverlayState SelectableOverlayState;
 
-	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = Component)
-	TObjectPtr<class UCharacterMoverComponent> CharacterMoverComponent;
+
 
 #pragma region DA
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Load")
@@ -463,6 +475,9 @@ protected:
 	void OverlayStateChange_Callback(const ELSOverlayState PrevOverlay, const ELSOverlayState CurrentOverlay);
 
 	UFUNCTION()
+	void GaitChange_Callback(const ELSGait InGait);
+
+	UFUNCTION()
 	void OnTargetLockedOn_Callback(AActor* LookOnTarget, UHitTargetComponent* TargetComponent);
 
 	UFUNCTION()
@@ -471,11 +486,28 @@ protected:
 
 	void SetAbilitySystemLoadState(EAbilitySystemLoadState NewState, EAbilitySystemLoadReason Reason);
 
+	virtual void RepairComponentReferences();
+
 	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
 	void SetAiming(const bool bIsNewAiming);
 
 	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
 	bool GetAiming() const;
+
+	UFUNCTION(BlueprintImplementableEvent, Category = "BaseCharacter|Locomotion")
+	void BP_GaitChange_Callback(const ELSGait InGait);
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
+	bool IsWalkingMode() const;
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
+	bool IsSlidingMode() const;
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
+	bool IsFallingMode() const;
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
+	bool IsTraversingMode() const;
 
 public:
 	const FCustomWvAbilitySystemAvatarData& GetCustomWvAbilitySystemData();

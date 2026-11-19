@@ -138,11 +138,13 @@ void ABulletHoldWeaponActor::Notify_ReloadOwner()
 
 void ABulletHoldWeaponActor::DoReload()
 {
-
+#if false
 	if (IsValid(ReloadAnimation))
 	{
 		SkeletalMeshComponent->PlayAnimation(ReloadAnimation, false);
 	}
+#endif
+
 	DoReloadReceived();
 }
 
@@ -157,7 +159,9 @@ float ABulletHoldWeaponActor::GetBulletInterval() const
 float ABulletHoldWeaponActor::GetGunFireAnimationLength() const
 {
 	float Total = FireAnimationOffset;
+#if false
 	Total += IsValid(FireAnimation) ? FireAnimation->GetPlayLength() : 0.f;
+#endif
 	return Total;
 }
 

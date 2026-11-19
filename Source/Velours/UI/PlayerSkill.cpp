@@ -49,6 +49,10 @@ void UPlayerSkill::Renderer(const float DeltaTime)
 
 }
 
+void UPlayerSkill::Visibility(const bool InVisibility)
+{
+	Super::SetVisibility(InVisibility ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Hidden);
+}
 
 
 

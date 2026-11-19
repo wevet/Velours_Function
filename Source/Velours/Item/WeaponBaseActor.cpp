@@ -27,9 +27,13 @@ FPawnAttackParam UWeaponParameterDataAsset::Find(const FName WeaponKeyName) cons
 
 AWeaponBaseActor::AWeaponBaseActor(const FObjectInitializer& ObjectInitializer) : Super(ObjectInitializer)
 {
+	SceneComponent = ObjectInitializer.CreateDefaultSubobject<USceneComponent>(this, TEXT("DefaultSceneRoot"));
+	RootComponent = SceneComponent;
+
 	SkeletalMeshComponent = ObjectInitializer.CreateDefaultSubobject<USkeletalMeshComponent>(this, TEXT("SkeletalMeshComponent"));
-	RootComponent = SkeletalMeshComponent;
 	SkeletalMeshComponent->SetCollisionResponseToChannel(ECollisionChannel::ECC_GameTraceChannel3, ECollisionResponse::ECR_Overlap);
+
+	SkeletalMeshComponent->SetupAttachment(SceneComponent, NAME_None);
 
 	Priority = 0;
 
@@ -95,6 +99,7 @@ void AWeaponBaseActor::Notify_Equip()
 {
 	if (!Character.IsValid())
 	{
+		UE_LOG(LogBaseItem, Warning, TEXT("[%s] : not valid Character"), ANSI_TO_TCHAR(__FUNCTION__));
 		return;
 	}
 
@@ -113,6 +118,8 @@ void AWeaponBaseActor::Notify_Equip()
 		}
 
 	}
+
+	UE_LOG(LogBaseItem, Log, TEXT("[%s] : this => %s"), ANSI_TO_TCHAR(__FUNCTION__), *GetNameSafe(this));
 }
 
 void AWeaponBaseActor::Notify_UnEquip()
@@ -138,6 +145,7 @@ void AWeaponBaseActor::Notify_UnEquip()
 
 	}
 
+	UE_LOG(LogBaseItem, Log, TEXT("[%s] : this => %s"), ANSI_TO_TCHAR(__FUNCTION__), *GetNameSafe(this));
 }
 
 

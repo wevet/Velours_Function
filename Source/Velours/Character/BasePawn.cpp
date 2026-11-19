@@ -12,6 +12,7 @@
 #include "Component/WvFactionComponent.h"
 #include "Component/WvRelationshipComponent.h"
 #include "Component/WvVisualComponent.h"
+#include "Component/WvCharacterMoverComponent.h"
 
 #include "Mission/MinimapMarkerComponent.h"
 #include "Game/WvGameInstance.h"
@@ -80,6 +81,7 @@ FName ABasePawn::BackwardInputSyncPoint = FName(TEXT("BackwardInputSyncPoint"));
 FName ABasePawn::CapsuleCollisionProfileName = FName(TEXT("CharacterCapsule"));
 FName ABasePawn::MeshCollisionProfileName = FName(TEXT("Ragdoll"));
 
+
 namespace CharacterHelper
 {
 	const bool HasTag(const UAbilitySystemComponent* ASC, const FGameplayTag& TagToCheck)
@@ -132,6 +134,9 @@ ABasePawn::ABasePawn(const FObjectInitializer& ObjectInitializer) : Super(Object
 	MinimapMarkerComponent = ObjectInitializer.CreateDefaultSubobject<UMinimapMarkerComponent>(this, TEXT("MinimapMarkerComponent"));
 	MinimapMarkerComponent->bAutoActivate = 1;
 
+	WvCharacterMoverComponent = ObjectInitializer.CreateDefaultSubobject<UWvCharacterMoverComponent>(this, TEXT("WvCharacterMoverComponent"));
+	WvCharacterMoverComponent->bAutoActivate = 1;
+
 	// locomotion
 	LocomotionComponent = ObjectInitializer.CreateDefaultSubobject<ULocomotionComponent>(this, TEXT("LocomotionComponent"));
 	LocomotionComponent->bAutoActivate = 1;
@@ -159,8 +164,6 @@ void ABasePawn::BeginPlay()
 {
 	Super::BeginPlay();
 
-	LocomotionComponent->OnOverlayChangeDelegate.AddUniqueDynamic(this, &ThisClass::OverlayStateChange_Callback);
-
 	RequestAsyncLoad();
 
 }
@@ -179,14 +182,18 @@ void ABasePawn::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	//FTimerManager& TM = GetWorld()->GetTimerManager();
 	//TM.ClearTimer(Ragdoll_TimerHandle);
 
-	CharacterMoverComponent = FindComponentByClass<UCharacterMoverComponent>();
 
-	if (CharacterMoverComponent)
+	if (WvCharacterMoverComponent)
 	{
-		CharacterMoverComponent->OnMovementModeChanged.RemoveDynamic(this, &ABasePawn::OnMovementModeChanged_Callback);
+		WvCharacterMoverComponent->OnMovementModeChanged.RemoveDynamic(this, &ABasePawn::OnMovementModeChanged_Callback);
 	}
 
-	LocomotionComponent->OnOverlayChangeDelegate.RemoveDynamic(this, &ThisClass::OverlayStateChange_Callback);
+	if (LocomotionComponent)
+	{
+		LocomotionComponent->OnOverlayChangeDelegate.RemoveDynamic(this, &ThisClass::OverlayStateChange_Callback);
+		LocomotionComponent->OnGaitChangeDelegate.RemoveDynamic(this, &ThisClass::GaitChange_Callback);
+	}
+
 
 	if (IsValid(AbilitySystemComponent))
 	{
@@ -201,30 +208,52 @@ void ABasePawn::OnConstruction(const FTransform& Transform)
 {
 }
 
+void ABasePawn::PostLoad()
+{
+	Super::PostLoad();
+
+	// BP のクラスのデフォルトに、壊れたポインター（None など）が保存されていたら直す
+	RepairComponentReferences();
+}
+
+#if WITH_EDITOR
+void ABasePawn::PostCDOCompiled(const FPostCDOCompiledContext& Context)
+{
+	Super::PostCDOCompiled(Context);
+
+	// コンパイルで古い値が引き継がれても直す
+	RepairComponentReferences();
+}
+#endif
+
 void ABasePawn::PreInitializeComponents()
 {
-	UE_LOG(LogTemp, Warning, TEXT("PreInitializeComponents: %s Class=%s"),
+	UE_LOG(LogTemp, Log, TEXT("PreInitializeComponents: %s Class=%s"),
 		*GetName(),
 		*GetClass()->GetName());
 
 	Super::PreInitializeComponents();
+
 }
 
 void ABasePawn::PostInitializeComponents()
 {
 	Super::PostInitializeComponents();
 
-	UCharacterMoverComponent* CharacterMover = FindComponentByClass<UCharacterMoverComponent>();
-
-	if (CharacterMover && !CharacterMover->MovementMixer)
+	if (bIsAllowRepairComponents)
 	{
-		CharacterMover->MovementMixer = NewObject<UMovementMixer>(CharacterMover, TEXT("RuntimeMovementMixer"));
-		UE_LOG(LogBaseCharacter, Warning, TEXT("[%s] Created MovementMixer for %s"), *GetName(), *CharacterMover->GetName());
+		RepairComponentReferences();
 	}
 
-	if (CharacterMover)
+	if (WvCharacterMoverComponent)
 	{
-		CharacterMover->OnMovementModeChanged.AddUniqueDynamic(this, &ABasePawn::OnMovementModeChanged_Callback);
+		WvCharacterMoverComponent->OnMovementModeChanged.AddUniqueDynamic(this, &ThisClass::OnMovementModeChanged_Callback);
+	}
+
+	if (LocomotionComponent)
+	{
+		LocomotionComponent->OnOverlayChangeDelegate.AddUniqueDynamic(this, &ThisClass::OverlayStateChange_Callback);
+		LocomotionComponent->OnGaitChangeDelegate.AddUniqueDynamic(this, &ThisClass::GaitChange_Callback);
 	}
 
 	if (HasAuthority() && AbilitySystemCreationPolicy == EAbilitySystemCreationPolicy::Always)
@@ -364,6 +393,90 @@ void ABasePawn::SetGenericTeamId(const FGenericTeamId& NewTeamID)
 	}
 }
 
+void ABasePawn::RepairComponentReferences()
+{
+	for (TFieldIterator<FObjectProperty> It(GetClass()); It; ++It)
+	{
+		FObjectProperty* Property = *It;
+		if (!Property->PropertyClass || !Property->PropertyClass->IsChildOf(UActorComponent::StaticClass()))
+		{
+			continue;
+		}
+
+		UActorComponent* Current = Cast<UActorComponent>(Property->GetObjectPropertyValue_InContainer(this));
+
+		// 正しく自分のコンポーネントを指していれば何もしない
+		if (Current && Current->GetOwner() == this)
+		{
+			continue;
+		}
+
+		// ほかのアクターのコンポーネントを指しているもの（テンプレートでない）には触らない
+		if (Current)
+		{
+			const AActor* CurrentOwner = Current->GetOwner();
+			const bool bPointsToTemplate =
+				Current->IsTemplate() ||
+				(CurrentOwner && CurrentOwner->HasAnyFlags(RF_ClassDefaultObject | RF_ArchetypeObject));
+			if (!bPointsToTemplate)
+			{
+				continue;
+			}
+		}
+
+		// 手がかりは、このプロパティを宣言した C++ のクラスのデフォルト（BP のアセットの影響を受けない）
+		const UClass* NativeOwnerClass = Property->GetOwnerClass();
+		const UObject* NativeDefault = NativeOwnerClass ? NativeOwnerClass->GetDefaultObject() : nullptr;
+		const UActorComponent* Template = NativeDefault
+			? Cast<UActorComponent>(Property->GetObjectPropertyValue_InContainer(NativeDefault))
+			: nullptr;
+
+		UActorComponent* Fixed = nullptr;
+		if (Template)
+		{
+			Fixed = Cast<UActorComponent>(StaticFindObjectFast(Template->GetClass(), this, Template->GetFName()));
+		}
+		else if (Current)
+		{
+			// C++ のデフォルトで作っていない場合は、今の値の名前で探す
+			Fixed = Cast<UActorComponent>(StaticFindObjectFast(Current->GetClass(), this, Current->GetFName()));
+		}
+		else
+		{
+			// 実行時に入れるもの（デフォルトで nullptr のもの）は対象外
+			continue;
+		}
+
+		// 最後の手段：そのクラスのコンポーネントが 1 つだけなら、それを使う
+		if (!Fixed)
+		{
+			TArray<UActorComponent*> Candidates;
+			GetComponents(Property->PropertyClass, Candidates);
+			if (Candidates.Num() == 1)
+			{
+				Fixed = Candidates[0];
+			}
+		}
+
+		if (!Fixed)
+		{
+			UE_LOG(LogBaseCharacter, Error, TEXT("[%s] %s is %s, and no instance was found."),
+				*GetName(), *Property->GetName(), *GetPathNameSafe(Current));
+			continue;
+		}
+
+
+		if (Fixed == Current)
+		{
+			continue;
+		}
+
+		UE_LOG(LogBaseCharacter, Warning, TEXT("[%s] %s repaired: %s => %s. Re-save the Blueprint %s."),
+			*GetName(), *Property->GetName(), *GetPathNameSafe(Current), *GetPathNameSafe(Fixed), *GetNameSafe(GetClass()));
+
+		Property->SetObjectPropertyValue_InContainer(this, Fixed);
+	}
+}
 
 USceneComponent* ABasePawn::GetOverlapBaseComponent()
 {
@@ -1011,6 +1124,10 @@ void ABasePawn::OverlayStateChange_Callback(const ELSOverlayState PrevOverlay, c
 	}
 }
 
+void ABasePawn::GaitChange_Callback(const ELSGait InGait)
+{
+	BP_GaitChange_Callback(InGait);
+}
 
 void ABasePawn::OnTargetLockedOn_Callback(AActor* LookOnTarget, UHitTargetComponent* TargetComponent)
 {
@@ -1329,8 +1446,27 @@ void ABasePawn::OnMovementModeChanged_Callback(const FName& PreviousModeName, co
 			if (NextMovementModeTag.IsValid())
 			{
 				AbilitySystemComponent->AddGameplayTag(NextMovementModeTag);
+
+				UE_LOG(LogBaseCharacter, Log, TEXT("[%s] : PrevMovementModeTag => %s, NextMovementModeTag => %s"),
+					*FString(__FUNCTION__),
+					*PreviousModeName.ToString(),
+					*NewModeName.ToString());
 			}
 		}
+		else
+		{
+			UE_LOG(LogBaseCharacter, Warning, TEXT("[%s] : ASC Error PrevMovementModeTag => %s, NextMovementModeTag => %s"),
+				*FString(__FUNCTION__),
+				*PreviousModeName.ToString(),
+				*NewModeName.ToString());
+		}
+	}
+	else
+	{
+		UE_LOG(LogBaseCharacter, Error, TEXT("[%s] : ASC Error PrevMovementModeTag => %s, NextMovementModeTag => %s"),
+			*FString(__FUNCTION__),
+			*PreviousModeName.ToString(),
+			*NewModeName.ToString());
 	}
 }
 
@@ -1572,6 +1708,11 @@ void ABasePawn::SetAiming(const bool bIsNewAiming)
 {
 	ULocomotionComponent* Comp = GetLocomotionComponent();
 	Comp->SetAiming(bIsNewAiming);
+
+	if (AimingChangeDelegate.IsBound())
+	{
+		AimingChangeDelegate.Broadcast(bIsNewAiming);
+	}
 }
 
 bool ABasePawn::GetAiming() const
@@ -1582,4 +1723,71 @@ bool ABasePawn::GetAiming() const
 
 
 #pragma endregion
+
+
+bool ABasePawn::IsWalkingMode() const
+{
+	bool bIsResult = false;
+	if (AbilitySystemComponent)
+	{
+		bIsResult |= AbilitySystemComponent->HasMatchingGameplayTag(TAG_Character_MovementState_Walking);
+	}
+
+	if (WvCharacterMoverComponent)
+	{
+		bIsResult |= WvCharacterMoverComponent->GetMovementModeName() == UWvCharacterMoverComponent::ModeName_Walking;
+	}
+
+	return bIsResult;
+}
+
+bool ABasePawn::IsSlidingMode() const
+{
+	bool bIsResult = false;
+
+	if (AbilitySystemComponent)
+	{
+		bIsResult |= AbilitySystemComponent->HasMatchingGameplayTag(TAG_Character_MovementState_Sliding);
+	}
+
+	if (WvCharacterMoverComponent)
+	{
+		bIsResult |= WvCharacterMoverComponent->GetMovementModeName() == UWvCharacterMoverComponent::ModeName_Sliding;
+	}
+
+	return bIsResult;
+}
+
+bool ABasePawn::IsFallingMode() const
+{
+	bool bIsResult = false;
+
+	if (AbilitySystemComponent)
+	{
+		bIsResult |= AbilitySystemComponent->HasMatchingGameplayTag(TAG_Character_MovementState_Falling);
+	}
+
+	if (WvCharacterMoverComponent)
+	{
+		bIsResult |= WvCharacterMoverComponent->GetMovementModeName() == UWvCharacterMoverComponent::ModeName_Falling;
+	}
+
+	return bIsResult;
+}
+
+bool ABasePawn::IsTraversingMode() const
+{
+	bool bIsResult = false;
+	if (AbilitySystemComponent)
+	{
+		bIsResult |= AbilitySystemComponent->HasMatchingGameplayTag(TAG_Character_MovementState_Traversing);
+	}
+
+	if (WvCharacterMoverComponent)
+	{
+		bIsResult |= WvCharacterMoverComponent->GetMovementModeName() == UWvCharacterMoverComponent::ModeName_Traversing;
+	}
+
+	return bIsResult;
+}
 

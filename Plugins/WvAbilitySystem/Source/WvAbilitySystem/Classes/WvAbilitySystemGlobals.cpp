@@ -28,13 +28,11 @@ void UWvAbilitySystemGlobals::StartAsyncLoadingObjectLibraries()
 
 void UWvAbilitySystemGlobals::InitGlobalData()
 {
-	if (bWvGlobalDataInitialized)
+	if (IsAbilitySystemGlobalsInitialized())
 	{
-		UE_LOG(LogWvAbility, Warning, TEXT("[UWvAbilitySystemGlobals::InitGlobalData] : InitGlobalData skipped. Already initialized."));
+		UE_LOG(LogWvAbility, Verbose, TEXT("[UWvAbilitySystemGlobals::InitGlobalData] : InitGlobalData skipped. Already initialized."));
 		return;
 	}
-
-	bWvGlobalDataInitialized = true;
 
 	UE_LOG(LogWvAbility, Log, TEXT("[UWvAbilitySystemGlobals::InitGlobalData] : AbilitySystemGlobalsClass=%s"), *GetClass()->GetPathName());
 

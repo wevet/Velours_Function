@@ -83,7 +83,6 @@ public:
 	UPROPERTY(EditDefaultsOnly)
 	TArray<UClass*> BulletHitFilterClasses;
 
-	bool bWvGlobalDataInitialized{false};
 
 public:
 	FGameplayTag FindScopeTagByNameToGameplayTagRefTable(FString Scope, const FName Name);

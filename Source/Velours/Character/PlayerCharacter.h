@@ -106,6 +106,9 @@ protected:
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "PlayerCharacter|Input")
 	FYawHoldState YawHold;
 
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "PlayerCharacter|FPS")
+	FTacticalActionData TacticalActionData;
+
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "PlayerCharacter|Input")
 	float HeldYawDelta{0.f};
 
@@ -148,6 +151,9 @@ public:
 
 	virtual void RefreshVisual() override;
 
+
+	UFUNCTION(BlueprintImplementableEvent)
+	void BP_HandleMeleeAction_FPS(const bool bIsPressed);
 
 protected:
 	virtual void PostAbilitySystemInitialize() override;
@@ -200,4 +206,6 @@ private:
 	UPROPERTY(Transient)
 	TObjectPtr<AWvPlayerController> P_Controller{ nullptr };
 
+
+	int32 LastProduceInputSimTimeMs = INDEX_NONE;
 };

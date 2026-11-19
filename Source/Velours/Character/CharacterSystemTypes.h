@@ -341,6 +341,30 @@ public:
 	FRotator LookingRotation{ FRotator::ZeroRotator };
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FVector Velocity{ FVector::ZeroVector };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FRotator LastMovementInputRotation{ FRotator::ZeroRotator };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FVector WorldAcceleration2D{ FVector::ZeroVector };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FVector LocalAcceleration2D{ FVector::ZeroVector };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FVector LocalVelocity2D{ FVector::ZeroVector };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	bool HasAcceleration{ false };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	bool bWasMoving{ false };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	bool bWasMovementInput{ false };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
 	bool bAiming{ false };
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion|AimOffset")
@@ -351,6 +375,27 @@ public:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion|Input")
 	FVector MovementInput{ FVector::ZeroVector };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FRotator LastVelocityRotation{ FRotator::ZeroRotator };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	FRotator CharacterRotation{ FRotator::ZeroRotator };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	float VelocityDifference{ 0.f };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion|AimOffset")
+	float AimYawDelta{ 0.f };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion|AimOffset")
+	float AimYawRate{ 0.f };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	float RotationDifference{ 0.f };
+
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "Locomotion")
+	float Direction{ 0.f };
 
 	TWeakObjectPtr<AActor> LookAtTarget{ nullptr };
 
@@ -1040,8 +1085,10 @@ struct FYawHoldState
 	// í«Ç¢Ç¬Ç´íÜÇÃâÒì]ë¨ìxÅiìx/ïbÅj
 	UPROPERTY(EditAnywhere, BlueprintReadWrite, meta = (ClampMin = "0.0"))
 	float TurnRate = 360.f;
+
 	UPROPERTY(BlueprintReadOnly)
 	float HeldYaw = 0.f;
+
 	UPROPERTY(BlueprintReadOnly)
 	bool bTurning = false;
 
@@ -1053,4 +1100,20 @@ struct FYawHoldState
 	float GetHeldDelta(float TargetYaw) const;
 };
 
+
+USTRUCT(BlueprintType)
+struct FTacticalActionData
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsQuickDraw{false};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 ActiveWeaponIndex{0};
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	int32 QuickDrawWeaponIndex{ 0 };
+};
 

@@ -43,9 +43,13 @@ protected:
 	UFUNCTION(BlueprintImplementableEvent, BlueprintCallable, Category = "Event")
 	void DoReloadReceived();
 
+	// @NOTE
+	// delete later
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")
 	TObjectPtr<class UAnimSequence> FireAnimation;
 
+	// @NOTE
+	// delete later
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "Weapon")
 	TObjectPtr<class UAnimSequence> ReloadAnimation;
 

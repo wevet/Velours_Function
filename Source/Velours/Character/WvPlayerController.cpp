@@ -358,13 +358,6 @@ void AWvPlayerController::RemoveMinimapHiddenActor(AActor* NewHiddenActor)
 /// <param name="InPawn"></param>
 void AWvPlayerController::OnDefaultPossess(APawn* InPawn)
 {
-	if (IsValid(UMGManager))
-	{
-		UMGManager->VisibleCombatUI(true);
-		BP_DefaultPossess(InPawn);
-		return;
-	}
-
 	// @NOTE
 	// MinimapはUMGManagerの子供になるのでUMGManagerが初期化済みの場合は非同期処理を行う必要がない。
 	if (!UMGManagerTemplate.IsNull())
@@ -548,6 +541,11 @@ bool AWvPlayerController::GetOverlayMenuOpen() const
 
 bool AWvPlayerController::IsFPSGameMode() const
 {
+	if (ABasePawn* BP = Cast<ABasePawn>(GetPawn()))
+	{
+		return BP->IsFPSControlMode();
+	}
+
 	return bIsFPSGameMode;
 }
 
@@ -737,6 +735,10 @@ void AWvPlayerController::PawnFPSChange_Callback(const bool bIsFPSEnable)
 	{
 		// fpsの場合は非表示
 		UMGManager->VisibleCombatUI(!bIsFPSEnable);
+	}
+	else
+	{
+		UE_LOG(LogTemp, Error, TEXT("[%s] : not valie UMGManager"), ANSI_TO_TCHAR(__FUNCTION__));
 	}
 }
 

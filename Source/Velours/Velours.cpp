@@ -157,6 +157,11 @@ UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_CheckPulse, "Bends.Interaction.Anim.
 UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Door, "Bends.Interaction.Anim.Door");
 UE_DEFINE_GAMEPLAY_TAG(TAG_Interaction_Anim_Phone, "Bends.Interaction.Anim.Phone");
 
+UE_DEFINE_GAMEPLAY_TAG(TAG_Character_MovementState_Walking, "Character.MovementState.Walking");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Character_MovementState_Falling, "Character.MovementState.Falling");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Character_MovementState_Sliding, "Character.MovementState.Sliding");
+UE_DEFINE_GAMEPLAY_TAG(TAG_Character_MovementState_Traversing, "Character.MovementState.Traversing");
+
 #define LOCTEXT_NAMESPACE ""
 
 void FVeloursModule::StartupModule()

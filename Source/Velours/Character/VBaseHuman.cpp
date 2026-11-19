@@ -3,6 +3,7 @@
 
 #include "Character/VBaseHuman.h"
 #include "Component/WvSkeletalMeshComponent.h"
+#include "VMetaHumanVisualActor.h"
 
 #include "Components/CapsuleComponent.h"
 #include "Components/ChildActorComponent.h"
@@ -86,6 +87,15 @@ AActor* AVBaseHuman::GetVisualActor() const
 				return Actor;
 			}
 		}
+	}
+	return nullptr;
+}
+
+AVMetaHumanVisualActor* AVBaseHuman::GetMetaHumanVisualActor() const
+{
+	if (AVMetaHumanVisualActor* MH = Cast<AVMetaHumanVisualActor>(GetVisualActor()))
+	{
+		return MH;
 	}
 	return nullptr;
 }

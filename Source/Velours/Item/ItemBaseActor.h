@@ -32,7 +32,10 @@ public:
 	UPROPERTY(BlueprintAssignable)
 	FItemEquipDelegate ItemEquipCallback;
 
+	UFUNCTION(BlueprintCallable)
 	virtual void Notify_Equip();
+
+	UFUNCTION(BlueprintCallable)
 	virtual void Notify_UnEquip();
 	virtual bool IsAvailable() const;
 

@@ -49,4 +49,8 @@ void UPlayerHealth::Renderer(const float DeltaTime)
 
 }
 
+void UPlayerHealth::Visibility(const bool InVisibility)
+{
+	Super::SetVisibility(InVisibility ? ESlateVisibility::SelfHitTestInvisible : ESlateVisibility::Hidden);
+}
 
