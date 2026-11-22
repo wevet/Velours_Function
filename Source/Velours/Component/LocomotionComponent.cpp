@@ -81,7 +81,17 @@ void ULocomotionComponent::SetStanceMode(const ELSStance NewLSStance)
 
 void ULocomotionComponent::SetRotationMode(const ELSRotationMode NewLSRotationMode)
 {
+	if (LocomotionEssencialVariables.LSRotationMode == NewLSRotationMode)
+	{
+		return;
+	}
+
 	LocomotionEssencialVariables.LSRotationMode = NewLSRotationMode;
+
+	if (OnRotationChangeDelegate.IsBound())
+	{
+		OnRotationChangeDelegate.Broadcast(NewLSRotationMode);
+	}
 
 	const FString CategoryName = *FString::Format(TEXT("ELSRotationMode => {0}"), { *GETENUMSTRING("/Script/Velours.ELSRotationMode", NewLSRotationMode) });
 	UE_LOG(LogVLocomotion, Log, TEXT("[%s] : %s"), ANSI_TO_TCHAR(__FUNCTION__), *CategoryName);
@@ -419,7 +429,9 @@ void ULocomotionComponent::SprintCheck()
 		}
 		else
 		{
-			if (!bDoRunning)
+			const bool bWasJustWalked = (LocomotionEssencialVariables.LSGait == ELSGait::Walking);
+
+			if (!bDoRunning || bWasJustWalked)
 			{
 				bDoRunning = true;
 				bDoSprint = false;

@@ -24,12 +24,21 @@ class VELOURS_API AVMetaHumanVisualActor : public AActor, public IVFirstPersonVi
 
 public:
 	AVMetaHumanVisualActor();
+	virtual void EndPlay(const EEndPlayReason::Type EndPlayReason) override;
 
 	// IVFirstPersonVisual
 	virtual void SetFirstPersonView(bool bIsFirstPerson) override;
 	virtual bool GetFirstPersonCameraAttachment(USceneComponent*& OutParent, FName& OutSocket) const override;
 
 	bool IsFirstPersonView() const { return bFirstPersonView; }
+
+	UFUNCTION(BlueprintCallable)
+	USkeletalMeshComponent* GetMainMesh() const { return BodyMesh; }
+
+	UFUNCTION(BlueprintCallable)
+	bool IsHeadHidden() const;
+
+	void SetRagdollTick(const bool bEnable);
 
 protected:
 	virtual void BeginPlay() override;
@@ -52,11 +61,6 @@ protected:
 	UPROPERTY(EditDefaultsOnly, Category = "FirstPerson")
 	bool bIsHeadHidden{false};
 
-	UFUNCTION(BlueprintCallable)
-	USkeletalMeshComponent* GetMainMesh() const { return BodyMesh; }
-
-	UFUNCTION(BlueprintCallable)
-	bool IsHeadHidden() const;
 
 private:
 	void CacheComponents();
@@ -69,5 +73,8 @@ private:
 	TArray<TObjectPtr<UPrimitiveComponent>> HeadPrimitives;
 
 	bool bFirstPersonView = false;
+
+	UPROPERTY()
+	TArray<USkeletalMeshComponent*> VisualMeshes;
 };
 

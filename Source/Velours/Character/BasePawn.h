@@ -66,12 +66,12 @@ DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FOverlayChangeDelegate, const ELSOve
 DECLARE_DYNAMIC_MULTICAST_DELEGATE(FAsyncLoadCompleteDelegate);
 
 UCLASS(Abstract)
-class VELOURS_API ABasePawn : public APawn, 
+class VELOURS_API ABasePawn : public APawn,
 	public IAbilitySystemInterface,
 	public IAISightTargetInterface,
 	public IWvAbilitySystemAvatarInterface,
 	public IWvAbilityTargetInterface,
-	public IWvAIActionStateInterface, 
+	public IWvAIActionStateInterface,
 	public IWvCinematicTargetInterface,
 	public IBendsDialogueSpeaker
 {
@@ -314,7 +314,16 @@ public:
 	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Shape")
 	FCharacterInfo GetCharacterInfo() const;
 
-	virtual void RefreshVisual() {};
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Shape")
+	virtual USkeletalMeshComponent* GetVisualizeMesh() const;
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Action")
+	virtual void OnRagdoll() {};
+
+	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Action")
+	virtual void OnUnRagdoll() {};
+
+	virtual void RefreshVisual();
 
 #pragma region NearlestAction
 	const TArray<AActor*> FindNearestTargets(const float Distance, const float AngleThreshold);
@@ -355,6 +364,20 @@ public:
 	virtual void RequestComponentsAsyncLoad();
 #pragma endregion
 
+	UFUNCTION(BlueprintCallable)
+	const FCharacterInputState& GetCharacterInputStateData() { return CharacterInputState; }
+
+	UFUNCTION(BlueprintCallable)
+	void SetCharacterInputStateData(const FCharacterInputState& InCharacterInputState);
+
+	UFUNCTION(BlueprintCallable)
+	void HandleCrouch();
+
+	UFUNCTION(BlueprintCallable)
+	virtual void Crouch();
+
+	UFUNCTION(BlueprintCallable)
+	virtual void UnCrouch();
 
 protected:
 #pragma region Components
@@ -434,7 +457,8 @@ protected:
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "BaseCharacter|Config")
 	ELSOverlayState SelectableOverlayState;
 
-
+	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "BaseCharacter|Input")
+	FCharacterInputState CharacterInputState;
 
 #pragma region DA
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "BaseCharacter|Load")
@@ -478,6 +502,9 @@ protected:
 	void GaitChange_Callback(const ELSGait InGait);
 
 	UFUNCTION()
+	void RotationChange_Callback(const ELSRotationMode InRotationMode);
+
+	UFUNCTION()
 	void OnTargetLockedOn_Callback(AActor* LookOnTarget, UHitTargetComponent* TargetComponent);
 
 	UFUNCTION()
@@ -508,6 +535,9 @@ protected:
 
 	UFUNCTION(BlueprintCallable, Category = "BaseCharacter|Locomotion")
 	bool IsTraversingMode() const;
+
+	void VelocityMovement();
+	void StrafeMovement();
 
 public:
 	const FCustomWvAbilitySystemAvatarData& GetCustomWvAbilitySystemData();

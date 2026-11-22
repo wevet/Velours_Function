@@ -40,6 +40,9 @@ public:
 	virtual FGameplayTag GetDialogueSpeakerTag() const override;
 	//~End IBendsDialogueSpeaker
 
+	virtual void OnRagdoll() override;
+
+	virtual void OnUnRagdoll() override;
 
 protected:
 	virtual void BeginPlay() override;
@@ -68,6 +71,8 @@ public:
 
 	UFUNCTION(BlueprintCallable)
 	AVMetaHumanVisualActor* GetMetaHumanVisualActor() const;
+
+	virtual USkeletalMeshComponent* GetVisualizeMesh() const override;
 };
 
 

@@ -1117,3 +1117,29 @@ public:
 	int32 QuickDrawWeaponIndex{ 0 };
 };
 
+
+
+USTRUCT(BlueprintType)
+struct FCharacterInputState
+{
+	GENERATED_BODY()
+
+public:
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToSprint{ false };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToWalk{ false };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToStrafe{ false };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToAim{ false };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToCrouch{ false };
+
+	UPROPERTY(EditAnywhere, BlueprintReadWrite)
+	bool bIsWantsToFPS{ false };
+};

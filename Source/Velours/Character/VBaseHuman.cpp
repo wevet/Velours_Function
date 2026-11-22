@@ -55,6 +55,7 @@ void AVBaseHuman::PostEditChangeProperty(FPropertyChangedEvent& PropertyChangedE
 }
 #endif
 
+
 void AVBaseHuman::BeginPlay()
 {
 	Super::BeginPlay();
@@ -98,5 +99,32 @@ AVMetaHumanVisualActor* AVBaseHuman::GetMetaHumanVisualActor() const
 		return MH;
 	}
 	return nullptr;
+}
+
+USkeletalMeshComponent* AVBaseHuman::GetVisualizeMesh() const
+{
+	if (AVMetaHumanVisualActor* MHA = GetMetaHumanVisualActor())
+	{
+		return MHA->GetMainMesh();
+	}
+
+	return SkeletalMeshComponent;
+}
+
+
+void AVBaseHuman::OnRagdoll()
+{
+	if (auto MH = GetMetaHumanVisualActor())
+	{
+		MH->SetRagdollTick(true);
+	}
+}
+
+void AVBaseHuman::OnUnRagdoll()
+{
+	if (auto MH = GetMetaHumanVisualActor())
+	{
+		MH->SetRagdollTick(false);
+	}
 }
 

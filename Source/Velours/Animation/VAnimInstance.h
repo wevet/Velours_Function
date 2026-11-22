@@ -99,6 +99,9 @@ public:
 	UFUNCTION(BlueprintPure, Category = "VAnimInstance|FPS", meta = (BlueprintThreadSafe))
 	const FVFirstPersonAimData& GetFirstPersonAimData() const { return FirstPersonAimData; }
 
+	UFUNCTION(BlueprintPure, Category = "VAnimInstance", meta = (BlueprintThreadSafe))
+	bool IsFullBodyAndDefaultSlotActive() const;
+
 protected:
 	TWeakObjectPtr<AActor> TargetActor;
 
@@ -131,6 +134,9 @@ protected:
 
 	UPROPERTY(VisibleAnywhere, BlueprintReadOnly, Category = "VAnimInstance|Config")
 	TObjectPtr<class ABasePawn> BasePawn{nullptr};
+
+	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "VAnimInstance|TPS")
+	float TPSTurnInPlaceThres{45.0f};
 
 	UPROPERTY(EditDefaultsOnly, BlueprintReadWrite, Category = "VAnimInstance|FPS")
 	float FPSTurnInPlaceThres{75.0f};

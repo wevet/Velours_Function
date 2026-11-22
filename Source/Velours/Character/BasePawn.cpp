@@ -192,6 +192,7 @@ void ABasePawn::EndPlay(const EEndPlayReason::Type EndPlayReason)
 	{
 		LocomotionComponent->OnOverlayChangeDelegate.RemoveDynamic(this, &ThisClass::OverlayStateChange_Callback);
 		LocomotionComponent->OnGaitChangeDelegate.RemoveDynamic(this, &ThisClass::GaitChange_Callback);
+		LocomotionComponent->OnRotationChangeDelegate.RemoveDynamic(this, &ThisClass::RotationChange_Callback);
 	}
 
 
@@ -254,6 +255,7 @@ void ABasePawn::PostInitializeComponents()
 	{
 		LocomotionComponent->OnOverlayChangeDelegate.AddUniqueDynamic(this, &ThisClass::OverlayStateChange_Callback);
 		LocomotionComponent->OnGaitChangeDelegate.AddUniqueDynamic(this, &ThisClass::GaitChange_Callback);
+		LocomotionComponent->OnRotationChangeDelegate.AddUniqueDynamic(this, &ThisClass::RotationChange_Callback);
 	}
 
 	if (HasAuthority() && AbilitySystemCreationPolicy == EAbilitySystemCreationPolicy::Always)
@@ -763,6 +765,16 @@ UWvSkeletalMeshComponent* ABasePawn::GetWvSkeletalMeshComponent() const
 	return nullptr;
 }
 
+USkeletalMeshComponent* ABasePawn::GetVisualizeMesh() const
+{
+	return nullptr;
+}
+
+void ABasePawn::RefreshVisual()
+{
+	//
+}
+
 UCombatComponent* ABasePawn::GetCombatComponent() const
 {
 	return CombatComponent;
@@ -1127,6 +1139,56 @@ void ABasePawn::OverlayStateChange_Callback(const ELSOverlayState PrevOverlay, c
 void ABasePawn::GaitChange_Callback(const ELSGait InGait)
 {
 	BP_GaitChange_Callback(InGait);
+
+	switch (InGait)
+	{
+	case ELSGait::Sprinting:
+	{
+		CharacterInputState.bIsWantsToSprint = true;
+		UnCrouch();
+	}
+
+		break;
+	case ELSGait::Running:
+	{
+		CharacterInputState.bIsWantsToSprint = false;
+		CharacterInputState.bIsWantsToWalk = false;
+	}
+		break;
+	case ELSGait::Walking:
+	{
+		CharacterInputState.bIsWantsToSprint = false;
+		CharacterInputState.bIsWantsToWalk = true;
+	}
+		break;
+	}
+}
+
+void ABasePawn::RotationChange_Callback(const ELSRotationMode InRotationMode)
+{
+
+	//
+}
+
+void ABasePawn::VelocityMovement()
+{
+	if (LocomotionComponent)
+	{
+		LocomotionComponent->SetRotationMode(ELSRotationMode::VelocityDirection);
+	}
+
+	CharacterInputState.bIsWantsToStrafe = false;
+}
+
+void ABasePawn::StrafeMovement()
+{
+
+	if (LocomotionComponent)
+	{
+		LocomotionComponent->SetRotationMode(ELSRotationMode::LookingDirection);
+	}
+
+	CharacterInputState.bIsWantsToStrafe = true;
 }
 
 void ABasePawn::OnTargetLockedOn_Callback(AActor* LookOnTarget, UHitTargetComponent* TargetComponent)
@@ -1706,21 +1768,85 @@ void ABasePawn::UpdateTargetableActorList(AActor* NewActor, const bool bIsAdd)
 #pragma region Locomotion
 void ABasePawn::SetAiming(const bool bIsNewAiming)
 {
-	ULocomotionComponent* Comp = GetLocomotionComponent();
-	Comp->SetAiming(bIsNewAiming);
+	const bool bWasAiming = GetAiming();
+	if (bWasAiming == bIsNewAiming)
+	{
+		return;
+	}
+
+	if (ULocomotionComponent* Comp = GetLocomotionComponent())
+	{
+		Comp->SetAiming(bIsNewAiming);
+	}
 
 	if (AimingChangeDelegate.IsBound())
 	{
 		AimingChangeDelegate.Broadcast(bIsNewAiming);
 	}
+
+	// @NOTE
+	// FPSMode‚Ìê‡‚ÍStrafeMovement‚ªŠO‚ê‚é‚Ì‚ÅA‘‚«Š·‚¦‚È‚¢
+	if (!IsFPSControlMode())
+	{
+		CharacterInputState.bIsWantsToAim = bIsNewAiming;
+	}
+
 }
 
 bool ABasePawn::GetAiming() const
 {
-	const FLocomotionEssencialVariables& LocomotionVariables = GetLocomotionComponent()->GetLocomotionEssencialVariables();
-	return LocomotionVariables.bAiming;
+	if (ULocomotionComponent* Comp = GetLocomotionComponent())
+	{
+		const FLocomotionEssencialVariables& LocomotionVariables = Comp->GetLocomotionEssencialVariables();
+		return LocomotionVariables.bAiming;
+	}
+	return false;
 }
 
+void ABasePawn::SetCharacterInputStateData(const FCharacterInputState& InCharacterInputState)
+{
+	CharacterInputState = InCharacterInputState;
+}
+
+void ABasePawn::HandleCrouch()
+{
+	if (WvCharacterMoverComponent)
+	{
+		if (WvCharacterMoverComponent->IsCrouching())
+		{
+			UnCrouch();
+		}
+		else
+		{
+			Crouch();
+		}
+	}
+
+}
+
+void ABasePawn::Crouch()
+{
+	if (WvCharacterMoverComponent && !WvCharacterMoverComponent->IsCrouching())
+	{
+		if (!CharacterInputState.bIsWantsToCrouch)
+		{
+			CharacterInputState.bIsWantsToCrouch = true;
+		}
+	}
+
+}
+
+void ABasePawn::UnCrouch()
+{
+	if (WvCharacterMoverComponent && WvCharacterMoverComponent->IsCrouching())
+	{
+		if (CharacterInputState.bIsWantsToCrouch)
+		{
+			CharacterInputState.bIsWantsToCrouch = false;
+		}
+
+	}
+}
 
 #pragma endregion
 

@@ -24,6 +24,7 @@ namespace LocomotionDebug
 
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_TwoParams(FLocomotionOverlayChangeDelegate, const ELSOverlayState, PrevOverlay, const ELSOverlayState, CurrentOverlay);
 DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLocomotionGaitChangeDelegate, const ELSGait, InGait);
+DECLARE_DYNAMIC_MULTICAST_DELEGATE_OneParam(FLocomotionRotationChangeDelegate, const ELSRotationMode, InRotationMode);
 
 UCLASS(BlueprintType)
 class VELOURS_API ULocomotionStateDataAsset : public UDataAsset
@@ -86,6 +87,9 @@ public:
 
 	UPROPERTY(BlueprintAssignable)
 	FLocomotionGaitChangeDelegate OnGaitChangeDelegate;
+
+	UPROPERTY(BlueprintAssignable)
+	FLocomotionRotationChangeDelegate OnRotationChangeDelegate;
 
 	const FLocomotionEssencialVariables& GetLocomotionEssencialVariables() { return LocomotionEssencialVariables; }
 

@@ -382,6 +382,7 @@ void APlayerCharacter::HandleSprinting(const bool bIsPress)
 	{
 	}
 
+
 	if (GetLocomotionComponent())
 	{
 		GetLocomotionComponent()->SetSprintPressed(bIsPress);
@@ -390,9 +391,16 @@ void APlayerCharacter::HandleSprinting(const bool bIsPress)
 
 void APlayerCharacter::HandleWalking(const bool bIsPress)
 {
-	if (bIsPress)
+	if (GetLocomotionComponent())
 	{
+		if (bIsPress && !CharacterInputState.bIsWantsToSprint)
+		{
+			const ELSGait Gait = !CharacterInputState.bIsWantsToWalk ? ELSGait::Walking : ELSGait::Running;
+			GetLocomotionComponent()->SetGaitMode(Gait);
+
+		}
 	}
+
 }
 
 void APlayerCharacter::HandleMeleeAction(const bool bIsPress)
@@ -510,6 +518,22 @@ void APlayerCharacter::HandleTargetLock()
 
 void APlayerCharacter::HandleRotationMode()
 {
+	if (LocomotionComponent == nullptr)
+	{
+		return;
+	}
+
+	const auto& LocomotionEssencialVariables = LocomotionComponent->GetLocomotionEssencialVariables();
+	const ELSRotationMode LSRotationMode = LocomotionEssencialVariables.LSRotationMode;
+	if (LSRotationMode == ELSRotationMode::VelocityDirection)
+	{
+		StrafeMovement();
+	}
+	else
+	{
+		VelocityMovement();
+	}
+
 }
 
 bool APlayerCharacter::HasFinisherAction(const FGameplayTag Tag) const
@@ -753,10 +777,17 @@ void APlayerCharacter::SetFPSMode(const bool bIsEnableFPS)
 
 		RefreshVisual();
 
-		UE_LOG(LogTemp, Log, TEXT("[%s] : bIsEnableFPS => %s"), *FString(__FUNCTION__), bIsEnableFPS ? TEXT("true") : TEXT("false"));
+		UE_LOG(LogBaseCharacter, Log, TEXT("[%s] : bIsEnableFPS => %s"), *FString(__FUNCTION__), bIsEnableFPS ? TEXT("true") : TEXT("false"));
 
 	}
 
+	CharacterInputState.bIsWantsToFPS = bIsEnableFPS;
+	CharacterInputState.bIsWantsToAim = bIsEnableFPS;
+
+	if (bIsEnableFPS)
+	{
+		CharacterInputState.bIsWantsToStrafe = true;
+	}
 
 	LocomotionComponent->SetRotationMode(bIsEnableFPS ? ELSRotationMode::LookingDirection : ELSRotationMode::VelocityDirection);
 }
@@ -798,6 +829,11 @@ void APlayerCharacter::RefreshVisual()
 	IVFirstPersonVisual* Visual = Cast<IVFirstPersonVisual>(VisualActor);
 	if (!Visual)
 	{
+		if (SkeletalMeshComponent)
+		{
+			SkeletalMeshComponent->SetVisibility(true);
+		}
+
 		return;
 	}
 
@@ -825,6 +861,11 @@ void APlayerCharacter::RefreshVisual()
 	if (FirstPersonMotionComponent)
 	{
 		FirstPersonMotionComponent->ResetView();
+	}
+
+	if (SkeletalMeshComponent)
+	{
+		SkeletalMeshComponent->SetVisibility(false);
 	}
 }
 

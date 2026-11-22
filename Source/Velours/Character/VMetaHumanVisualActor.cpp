@@ -1,7 +1,8 @@
 // Copyright 2022 wevet works All Rights Reserved.
 
 #include "Character/VMetaHumanVisualActor.h"
-
+#include "BasePawn.h"
+#include "Component/WvSkeletalMeshComponent.h"
 
 #include "Components/SkeletalMeshComponent.h"
 #include "Components/PrimitiveComponent.h"
@@ -24,6 +25,14 @@ void AVMetaHumanVisualActor::BeginPlay()
 	ApplyHeadVisibility();
 }
 
+void AVMetaHumanVisualActor::EndPlay(const EEndPlayReason::Type EndPlayReason)
+{
+	HeadPrimitives.Reset();
+	VisualMeshes.Reset();
+	Super::EndPlay(EndPlayReason);
+}
+
+
 void AVMetaHumanVisualActor::CacheComponents()
 {
 	BodyMesh = nullptr;
@@ -34,6 +43,11 @@ void AVMetaHumanVisualActor::CacheComponents()
 
 	for (UPrimitiveComponent* Primitive : Primitives)
 	{
+		if (Primitive == nullptr)
+		{
+			continue;
+		}
+
 		const FName Name = Primitive->GetFName();
 
 		if (Name == BodyComponentName)
@@ -72,6 +86,9 @@ void AVMetaHumanVisualActor::CacheComponents()
 		UE_LOG(LogVMetaHuman, Warning, TEXT("[%s] %s: head component '%s' not found."),
 			*FString(__FUNCTION__), *GetName(), *HeadComponentName.ToString());
 	}
+
+
+	GetComponents<USkeletalMeshComponent>(VisualMeshes);
 }
 
 void AVMetaHumanVisualActor::SetFirstPersonView(bool bIsFirstPerson)
@@ -84,6 +101,34 @@ void AVMetaHumanVisualActor::SetFirstPersonView(bool bIsFirstPerson)
 		ApplyHeadVisibility();
 	}
 
+	if (ABasePawn* Pawn = Cast<ABasePawn>(GetOwner()))
+	{
+		if (USkeletalMeshComponent* SourceMesh = Pawn->GetWvSkeletalMeshComponent())
+		{
+			for (USkeletalMeshComponent* SK : VisualMeshes)
+			{
+				if (SK)
+				{
+					SK->AddTickPrerequisiteComponent(SourceMesh);
+				}
+
+			}
+		}
+	}
+
+
+}
+
+void AVMetaHumanVisualActor::SetRagdollTick(const bool bEnable)
+{
+	const ETickingGroup Group = bEnable ? TG_PostPhysics : TG_PrePhysics;
+	for (USkeletalMeshComponent* SK : VisualMeshes)
+	{
+		if (SK)
+		{
+			SK->SetTickGroup(Group);
+		}
+	}
 }
 
 void AVMetaHumanVisualActor::ApplyHeadVisibility()

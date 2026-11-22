@@ -229,6 +229,14 @@ FVector UVAnimInstance::GetPredictionStopLocation(const FVector& CurrentLocation
 }
 
 
+bool UVAnimInstance::IsFullBodyAndDefaultSlotActive() const
+{
+	const FName DefaultSlot(TEXT("DefaultSlot"));
+	const FName FullBodySlot(TEXT("FullBody"));
+	return IsSlotActive(DefaultSlot) || IsSlotActive(FullBodySlot);
+}
+
+
 #pragma region Utils
 const TArray<UAnimInstance*> UVAnimInstance::GetAllAnimInstances()
 {
